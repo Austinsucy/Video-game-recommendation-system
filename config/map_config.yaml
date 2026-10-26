@@ -1,0 +1,338 @@
+# =============================================================================
+# Goon Squad - single configuration file (MAINT 2)
+#
+# Everything the map pipeline is allowed to tune lives here. Changing a weight
+# or the vocabulary must NOT require editing any code.
+#
+# STATUS: the `vocabulary` and `aliases` sections below are a STARTER STUB
+# written by Ronnie so the import process could be built and tested.
+# Austin + Kayne own the real contents: which features exist, which raw Steam
+# tag maps to which category, and what the category weights should be.
+# Extend freely - the importer validates this file and reports what it could
+# not map, so nothing silently disappears.
+# =============================================================================
+
+map_version: "v1"
+random_seed: 42          # REL 2: every randomised step in the pipeline uses this
+cluster_count: 12        # placeholder - Austin/Kayne decide
+
+# -----------------------------------------------------------------------------
+# Dataset + selection rule
+# -----------------------------------------------------------------------------
+dataset:
+  csv_path: "data/raw/games_march2025_cleaned.csv"
+  source_name: "kaggle_artermiloff_steam_2025"
+  retrieved_at: "2025-03-01"          # snapshot date of the Kaggle export
+  store_url_template: "https://store.steampowered.com/app/{appid}/"
+
+selection:
+  target_count: 1000                  # CON 3 caps the published map at 1100
+
+  # --- HOW THE 1000 ARE CHOSEN -----------------------------------------------
+  # "popular_recent"  = newest years first, most reviewed      <- Ron's answer
+  # "popular_pre2019" = <= max_year only, most reviewed        <- matches CON 3
+  #
+  # !! These two disagree. CON 3 of the NFR document says the published map is
+  # !! "approximately 1,000 mostly pre-2019 games". Flip this one value to
+  # !! switch; nothing else changes.
+  mode: "popular_recent"
+
+  max_year: 2018                      # only used when mode == popular_pre2019
+  min_year: 2019                      # only used when mode == popular_recent
+  rank_by: "num_reviews_total"        # deterministic, fully populated
+  tie_breaker: "title"                # REL 2: makes the pick reproducible
+
+  # DATA 1 minimums
+  min_genres: 1
+  min_tags: 3
+
+  # Raw `genres` values that are NOT games. Set to [] to keep them.
+  # Ron's call was to keep them, so this list is empty by default.
+  exclude_genres: []
+
+  # Raw `genres` values that are content warnings or business models rather
+  # than genres. These are kept on the game but recorded as display-only
+  # `tag` features so they do not get weighted as genres.
+  demote_genres_to_tags:
+    - "Early Access"
+    - "Free To Play"
+    - "Indie"
+    - "Gore"
+    - "Nudity"
+    - "Violent"
+    - "Sexual Content"
+
+  # Values in Steam's `categories` column that describe how many people play.
+  # Everything else in that column is a Steam store feature (Trading Cards,
+  # Remote Play, HDR...) and is ignored.
+  multiplayer_categories:
+    "Single-player": single_player
+    "Multi-player": multiplayer
+    "Co-op": co_op
+    "Online Co-op": online_co_op
+    "LAN Co-op": lan_co_op
+    "PvP": pvp
+    "Online PvP": online_pvp
+    "LAN PvP": lan_pvp
+    "MMO": mmo
+    "Shared/Split Screen": split_screen
+    "Shared/Split Screen Co-op": split_screen_co_op
+    "Shared/Split Screen PvP": split_screen_pvp
+    "Cross-Platform Multiplayer": cross_platform
+    "Remote Play Together": remote_play_together
+
+# -----------------------------------------------------------------------------
+# Field mapping: our `games` column <- raw CSV column
+# Zero is Steam's "no data" sentinel on several fields, so the importer turns
+# 0 into NULL for anything listed in zero_is_missing.
+# -----------------------------------------------------------------------------
+fields:
+  rating_source: "pct_pos_total"          # percent positive, 0-100
+  rating_scale: "0-100"
+  rating_count_source: "num_reviews_total"
+  popularity_source: "num_reviews_total"
+  playtime_source: "average_playtime_forever"   # MINUTES, average over recent players
+  playtime_definition: "Steam average playtime forever (minutes), converted to hours"
+  zero_is_missing:
+    - "metacritic_score"
+    - "user_score"
+    - "average_playtime_forever"
+
+# -----------------------------------------------------------------------------
+# Category weights - Austin/Kayne tune these.
+# `tag` is 0.0 on purpose: the scrum doc says display tags must not become an
+# extra weighted category or double-count a concept already captured elsewhere.
+# -----------------------------------------------------------------------------
+category_weights:
+  genre: 1.0
+  gameplay: 1.0
+  mechanic: 1.0
+  structure: 0.8
+  theme: 0.8
+  multiplayer: 0.5
+  perspective: 0.5
+  platform: 0.2
+  tag: 0.0
+
+# -----------------------------------------------------------------------------
+# Approved vocabulary -> becomes rows in the `features` table.
+# -----------------------------------------------------------------------------
+vocabulary:
+  genre:
+    - {name: action, display_name: "Action"}
+    - {name: adventure, display_name: "Adventure"}
+    - {name: rpg, display_name: "RPG"}
+    - {name: strategy, display_name: "Strategy"}
+    - {name: simulation, display_name: "Simulation"}
+    - {name: sports, display_name: "Sports"}
+    - {name: racing, display_name: "Racing"}
+    - {name: casual, display_name: "Casual"}
+    - {name: massively_multiplayer, display_name: "Massively Multiplayer"}
+    - {name: shooter, display_name: "Shooter"}
+    - {name: platformer, display_name: "Platformer"}
+    - {name: puzzle, display_name: "Puzzle"}
+    - {name: fighting, display_name: "Fighting"}
+    - {name: visual_novel, display_name: "Visual Novel"}
+    - {name: survival, display_name: "Survival"}
+    - {name: horror, display_name: "Horror"}
+
+  gameplay:
+    - {name: exploration, display_name: "Exploration"}
+    - {name: combat, display_name: "Combat"}
+    - {name: puzzle_solving, display_name: "Puzzle-Solving"}
+    - {name: story_driven, display_name: "Story-Driven"}
+    - {name: building, display_name: "Building"}
+    - {name: management, display_name: "Management"}
+    - {name: racing_driving, display_name: "Racing / Driving"}
+    - {name: stealth_play, display_name: "Stealth"}
+    - {name: survival_play, display_name: "Survival"}
+    - {name: farming, display_name: "Farming"}
+
+  mechanic:
+    - {name: crafting, display_name: "Crafting"}
+    - {name: deck_building, display_name: "Deck-Building"}
+    - {name: turn_based, display_name: "Turn-Based"}
+    - {name: real_time, display_name: "Real-Time"}
+    - {name: physics, display_name: "Physics"}
+    - {name: base_building, display_name: "Base Building"}
+    - {name: character_customization, display_name: "Character Customization"}
+    - {name: looting, display_name: "Looting"}
+    - {name: tower_defense, display_name: "Tower Defense"}
+    - {name: point_and_click, display_name: "Point & Click"}
+
+  structure:
+    - {name: open_world, display_name: "Open World"}
+    - {name: linear, display_name: "Linear"}
+    - {name: sandbox, display_name: "Sandbox"}
+    - {name: roguelike, display_name: "Roguelike"}
+    - {name: procedural, display_name: "Procedural Generation"}
+    - {name: level_based, display_name: "Level-Based"}
+    - {name: episodic, display_name: "Episodic"}
+    - {name: multiple_endings, display_name: "Multiple Endings"}
+
+  theme:
+    - {name: fantasy, display_name: "Fantasy"}
+    - {name: sci_fi, display_name: "Science Fiction"}
+    - {name: historical, display_name: "Historical"}
+    - {name: horror_theme, display_name: "Horror"}
+    - {name: post_apocalyptic, display_name: "Post-Apocalyptic"}
+    - {name: military, display_name: "Military"}
+    - {name: cyberpunk, display_name: "Cyberpunk"}
+    - {name: anime, display_name: "Anime"}
+    - {name: space, display_name: "Space"}
+    - {name: mystery, display_name: "Mystery"}
+    - {name: comedy, display_name: "Comedy"}
+    - {name: western, display_name: "Western"}
+
+  perspective:
+    - {name: first_person, display_name: "First-Person"}
+    - {name: third_person, display_name: "Third-Person"}
+    - {name: isometric, display_name: "Isometric"}
+    - {name: top_down, display_name: "Top-Down"}
+    - {name: side_scroller, display_name: "Side-Scroller"}
+    - {name: two_d, display_name: "2D"}
+    - {name: three_d, display_name: "3D"}
+    - {name: vr, display_name: "VR"}
+
+  multiplayer:
+    - {name: single_player, display_name: "Single-player"}
+    - {name: multiplayer, display_name: "Multiplayer"}
+    - {name: co_op, display_name: "Co-op"}
+    - {name: online_co_op, display_name: "Online Co-op"}
+    - {name: lan_co_op, display_name: "LAN Co-op"}
+    - {name: pvp, display_name: "PvP"}
+    - {name: online_pvp, display_name: "Online PvP"}
+    - {name: lan_pvp, display_name: "LAN PvP"}
+    - {name: mmo, display_name: "MMO"}
+    - {name: split_screen, display_name: "Shared/Split Screen"}
+    - {name: split_screen_co_op, display_name: "Split Screen Co-op"}
+    - {name: split_screen_pvp, display_name: "Split Screen PvP"}
+    - {name: cross_platform, display_name: "Cross-Platform Multiplayer"}
+    - {name: remote_play_together, display_name: "Remote Play Together"}
+
+  platform:
+    - {name: windows, display_name: "Windows"}
+    - {name: macos, display_name: "macOS"}
+    - {name: linux, display_name: "Linux"}
+
+# -----------------------------------------------------------------------------
+# Aliases: raw source string -> [category, feature name]
+#
+# Anything NOT listed here falls through to the display-only `tag` category,
+# so no information is lost - it just is not weighted. The import report lists
+# the most common unmapped tags so Austin/Kayne know what to add next.
+#
+# A tag mapped here does NOT also become a `tag` feature. That is how the
+# "avoid counting the same concept twice" rule is enforced.
+# -----------------------------------------------------------------------------
+aliases:
+  # --- from the `genres` column ---
+  "Action": [genre, action]
+  "Adventure": [genre, adventure]
+  "RPG": [genre, rpg]
+  "Role Playing": [genre, rpg]
+  "Strategy": [genre, strategy]
+  "Simulation": [genre, simulation]
+  "Sports": [genre, sports]
+  "Racing": [genre, racing]
+  "Casual": [genre, casual]
+  "Massively Multiplayer": [genre, massively_multiplayer]
+
+  # --- tags that are really genres ---
+  "Shooter": [genre, shooter]
+  "FPS": [genre, shooter]
+  "Platformer": [genre, platformer]
+  "2D Platformer": [genre, platformer]
+  "Puzzle": [genre, puzzle]
+  "Fighting": [genre, fighting]
+  "Visual Novel": [genre, visual_novel]
+  "Survival": [genre, survival]
+  "Horror": [genre, horror]
+  "Action-Adventure": [genre, adventure]
+  "Arcade": [genre, casual]
+
+  # --- gameplay ---
+  "Exploration": [gameplay, exploration]
+  "Combat": [gameplay, combat]
+  "Story Rich": [gameplay, story_driven]
+  "Narration": [gameplay, story_driven]
+  "Building": [gameplay, building]
+  "Management": [gameplay, management]
+  "Driving": [gameplay, racing_driving]
+  "Stealth": [gameplay, stealth_play]
+  "Farming": [gameplay, farming]
+  "Farming Sim": [gameplay, farming]
+  "Survival Horror": [gameplay, survival_play]
+
+  # --- mechanic ---
+  "Crafting": [mechanic, crafting]
+  "Deckbuilding": [mechanic, deck_building]
+  "Card Game": [mechanic, deck_building]
+  "Turn-Based": [mechanic, turn_based]
+  "Turn-Based Strategy": [mechanic, turn_based]
+  "Turn-Based Combat": [mechanic, turn_based]
+  "Real-Time": [mechanic, real_time]
+  "Real Time Tactics": [mechanic, real_time]
+  "RTS": [mechanic, real_time]
+  "Physics": [mechanic, physics]
+  "Base Building": [mechanic, base_building]
+  "Character Customization": [mechanic, character_customization]
+  "Loot": [mechanic, looting]
+  "Looter Shooter": [mechanic, looting]
+  "Tower Defense": [mechanic, tower_defense]
+  "Point & Click": [mechanic, point_and_click]
+
+  # --- structure ---
+  "Open World": [structure, open_world]
+  "Linear": [structure, linear]
+  "Sandbox": [structure, sandbox]
+  "Roguelike": [structure, roguelike]
+  "Roguelite": [structure, roguelike]
+  "Rogue-like": [structure, roguelike]
+  "Procedural Generation": [structure, procedural]
+  "Level Editor": [structure, level_based]
+  "Episodic": [structure, episodic]
+  "Multiple Endings": [structure, multiple_endings]
+  "Choices Matter": [structure, multiple_endings]
+
+  # --- theme ---
+  "Fantasy": [theme, fantasy]
+  "Dark Fantasy": [theme, fantasy]
+  "Sci-fi": [theme, sci_fi]
+  "Science": [theme, sci_fi]
+  "Historical": [theme, historical]
+  "World War II": [theme, historical]
+  "Psychological Horror": [theme, horror_theme]
+  "Post-apocalyptic": [theme, post_apocalyptic]
+  "Military": [theme, military]
+  "War": [theme, military]
+  "Cyberpunk": [theme, cyberpunk]
+  "Anime": [theme, anime]
+  "Space": [theme, space]
+  "Mystery": [theme, mystery]
+  "Detective": [theme, mystery]
+  "Comedy": [theme, comedy]
+  "Funny": [theme, comedy]
+  "Western": [theme, western]
+
+  # --- multiplayer, when it arrives as a tag rather than a Steam category ---
+  # These are exact synonyms of features already defined above, so mapping them
+  # deduplicates rather than double-counts.
+  "Singleplayer": [multiplayer, single_player]
+  "Multiplayer": [multiplayer, multiplayer]
+  "Co-op": [multiplayer, co_op]
+  "Online Co-Op": [multiplayer, online_co_op]
+  "Local Co-Op": [multiplayer, split_screen_co_op]
+  "PvP": [multiplayer, pvp]
+  "Base-Building": [mechanic, base_building]
+
+  # --- perspective ---
+  "First-Person": [perspective, first_person]
+  "Third Person": [perspective, third_person]
+  "Third-Person Shooter": [perspective, third_person]
+  "Isometric": [perspective, isometric]
+  "Top-Down": [perspective, top_down]
+  "Side Scroller": [perspective, side_scroller]
+  "2D": [perspective, two_d]
+  "3D": [perspective, three_d]
+  "VR": [perspective, vr]

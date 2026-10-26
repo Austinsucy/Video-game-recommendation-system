@@ -1,0 +1,31 @@
+# Secrets (SEC 2) - this file must exist before any API key does
+.env
+.env.local
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Node / frontend
+node_modules/
+dist/
+
+# Raw dataset snapshots - large, licensed, never committed
+data/raw/
+
+# Build artifacts from the ML pipeline
+data/artifacts/
+
+# Databases: ignored by default, with one exception for the shared published copy
+*.db
+*.sqlite
+*.sqlite3
+!data/games.db
+
+# OS
+.DS_Store
+Thumbs.db
