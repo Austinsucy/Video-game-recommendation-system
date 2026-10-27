@@ -76,3 +76,28 @@ def test_malformed_vectorization_section_is_rejected(section):
     cfg["vectorization"] = section
     with pytest.raises(ConfigError):
         validate_config(cfg)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"neighbor_count": 9},
+        {"neighbor_count": 16},
+        {"coordinate_extent": 0},
+        {"collision_min_distance": -1.0},
+        {"cluster_colors": ["#E69F00", "#E69F00"]},
+        {"cluster_colors": ["red"] * 12},
+    ],
+)
+def test_bad_layout_values_are_rejected(changes):
+    cfg = load_config()
+    cfg["layout"] = {**cfg["layout"], **changes}
+    with pytest.raises(ConfigError):
+        validate_config(cfg)
+
+
+def test_layout_needs_a_colour_for_every_cluster():
+    cfg = load_config()
+    cfg["cluster_count"] = len(cfg["layout"]["cluster_colors"]) + 1
+    with pytest.raises(ConfigError):
+        validate_config(cfg)

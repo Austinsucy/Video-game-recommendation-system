@@ -128,6 +128,30 @@ vectorization:
   embedding_tag_template: "a video game tagged {tag}"
 
 # -----------------------------------------------------------------------------
+# Map layout (pipeline/build_map.py). cluster_count and random_seed are above.
+# -----------------------------------------------------------------------------
+layout:
+  neighbor_count: 15           # neighbours stored per game; the scrum doc allows 10-15
+  coordinate_extent: 1000.0    # PCA output is scaled so the largest |x| or |y| equals this
+  collision_min_distance: 1.0  # games closer than this (e.g. identical tag vectors) are spread apart
+  # Colour-blind-friendly (ACC 3): Okabe-Ito, then four Paul Tol "muted" colours.
+  # Twelve categorical colours cannot all be told apart at a glance, so the legend
+  # must always label clusters by name, never by colour alone.
+  cluster_colors:
+    - "#E69F00"
+    - "#56B4E9"
+    - "#009E73"
+    - "#F0E442"
+    - "#0072B2"
+    - "#D55E00"
+    - "#CC79A7"
+    - "#999999"
+    - "#882255"
+    - "#44AA99"
+    - "#DDCC77"
+    - "#332288"
+
+# -----------------------------------------------------------------------------
 # Approved vocabulary -> becomes rows in the `features` table.
 # -----------------------------------------------------------------------------
 vocabulary:

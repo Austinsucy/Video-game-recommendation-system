@@ -3,6 +3,7 @@
 Every tunable value lives in that one file. This module is the only place that
 reads it, so a change there never requires a code change anywhere else.
 """
+import re
 from pathlib import Path
 
 import yaml
@@ -10,6 +11,7 @@ import yaml
 from backend.app.models import VALID_CATEGORIES
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
 CONFIG_PATH = REPO_ROOT / "config" / "map_config.yaml"
 
 
@@ -83,6 +85,7 @@ def validate_config(cfg: dict) -> None:
         raise ConfigError(f"selection.mode must be popular_recent or popular_pre2019, got {mode!r}")
 
     _validate_vectorization(cfg["vectorization"])
+    _validate_layout(cfg)
 
 
 def _is_number(value) -> bool:
@@ -110,6 +113,31 @@ def _validate_vectorization(vec) -> None:
     template = vec.get("embedding_tag_template")
     if not (isinstance(template, str) and "{tag}" in template):
         raise ConfigError("vectorization.embedding_tag_template must contain {tag}")
+
+
+def _validate_layout(cfg: dict) -> None:
+    layout = cfg.get("layout")
+    if not isinstance(layout, dict):
+        raise ConfigError("config is missing required section: layout")
+    count = layout.get("neighbor_count")
+    if not (isinstance(count, int) and not isinstance(count, bool) and 10 <= count <= 15):
+        raise ConfigError("layout.neighbor_count must be an integer from 10 to 15")
+    for key in ("coordinate_extent", "collision_min_distance"):
+        value = layout.get(key)
+        if not (_is_number(value) and value > 0):
+            raise ConfigError(f"layout.{key} must be a positive number")
+    clusters = cfg.get("cluster_count")
+    if not (isinstance(clusters, int) and not isinstance(clusters, bool) and clusters >= 1):
+        raise ConfigError("cluster_count must be a positive integer")
+    colors = layout.get("cluster_colors")
+    if not isinstance(colors, list) or not all(
+        isinstance(c, str) and _HEX_COLOR.fullmatch(c) for c in colors
+    ):
+        raise ConfigError("layout.cluster_colors must be a list of #RRGGBB colours")
+    if len({c.lower() for c in colors}) < clusters:
+        raise ConfigError(
+            f"layout.cluster_colors needs at least {clusters} distinct colours"
+        )
 
 
 def alias_lookup(cfg: dict) -> dict[str, tuple[str, str]]:
