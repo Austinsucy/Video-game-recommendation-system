@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from backend.app.models import Base, Game
+from pipeline.vectorize import CuratedFeatures
 
 N_GAMES = 20
 
@@ -63,6 +64,11 @@ def make_neighbors(ids, per_game=10):
                 }
             )
     return out
+
+
+def no_features(n_games: int) -> CuratedFeatures:
+    """Curated features for a tag-only fixture: none."""
+    return CuratedFeatures(np.zeros((n_games, 0)), (), ())
 
 
 def order_from_votes(votes: np.ndarray) -> np.ndarray:

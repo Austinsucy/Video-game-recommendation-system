@@ -65,9 +65,7 @@ def validate_config(cfg: dict) -> None:
     if bad:
         raise ConfigError(f"vocabulary has unapproved categories: {sorted(bad)}")
 
-    bad = set(cfg["category_weights"]) - set(VALID_CATEGORIES)
-    if bad:
-        raise ConfigError(f"category_weights has unapproved categories: {sorted(bad)}")
+    validate_category_weights(cfg["category_weights"])
 
     # Every alias target must exist in the vocabulary, or the importer would
     # silently drop features Austin and Kayne think they defined.
@@ -98,14 +96,29 @@ def validate_config(cfg: dict) -> None:
     if not _is_int(cfg.get("random_seed")):
         raise ConfigError("random_seed must be an integer")
 
-    for category, weight in cfg["category_weights"].items():
-        if not (_is_number(weight) and math.isfinite(weight) and weight >= 0):
-            raise ConfigError(
-                f"category_weights.{category} must be a finite number >= 0"
-            )
-
     _validate_vectorization(cfg["vectorization"])
     _validate_layout(cfg["layout"], cluster_count)
+
+
+def validate_category_weights(weights) -> None:
+    """One finite weight >= 0 per category, at least one above 0.
+
+    Also the check for any weights that arrive from outside the config file.
+    """
+    if not isinstance(weights, dict):
+        raise ConfigError("category_weights must be a mapping")
+    expected = set(VALID_CATEGORIES)
+    missing, unknown = expected - set(weights), set(weights) - expected
+    if missing or unknown:
+        raise ConfigError(
+            f"category_weights must name exactly the approved categories; "
+            f"missing: {sorted(missing)}, unapproved: {sorted(unknown)}"
+        )
+    for category, weight in weights.items():
+        if not (_is_number(weight) and math.isfinite(weight) and weight >= 0):
+            raise ConfigError(f"category_weights.{category} must be a finite number >= 0")
+    if not any(weight > 0 for weight in weights.values()):
+        raise ConfigError("category_weights needs at least one weight above 0")
 
 
 def is_valid_version_id(value) -> bool:

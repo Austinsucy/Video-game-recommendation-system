@@ -18,9 +18,10 @@ import numpy as np
 import yaml
 
 from backend.app.db import DB_PATH
-from pipeline.config import ARTIFACTS_DIR, REPO_ROOT, load_config, vectorization_params
+from pipeline.config import ARTIFACTS_DIR, REPO_ROOT, alias_lookup, load_config, vectorization_params
 from pipeline.vectorize import (
     EMBEDDING_METHODS,
+    FEATURE_METHODS,
     METHODS,
     TFIDF_METHODS,
     TagCorpus,
@@ -123,6 +124,13 @@ def save_vectors(corpus: TagCorpus, matrices: dict[str, np.ndarray]) -> None:
     (VECTORS_DIR / "tags.json").write_text(
         json.dumps(corpus.tags, ensure_ascii=False), encoding="utf-8"
     )
+    (VECTORS_DIR / "features.json").write_text(
+        json.dumps(
+            [list(pair) for pair in zip(corpus.features.categories, corpus.features.names)],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     for method, matrix in matrices.items():
         np.save(VECTORS_DIR / f"{method}.npy", matrix)
 
@@ -148,7 +156,9 @@ def build_report(
     out = [
         "# Tag vectorization comparison",
         "",
-        f"{len(corpus.titles)} games, {len(corpus.tags)} tags. "
+        f"{len(corpus.titles)} games. Column spaces: {len(corpus.tags)} tags "
+        f"(tags.json) for tag methods, {len(corpus.features.names)} curated features "
+        f"(features.json) for {', '.join(sorted(FEATURE_METHODS))}. "
         f"Methods compared: {', '.join(methods)}.",
         "",
         *[f"- {n}" for n in notes],
@@ -175,7 +185,8 @@ def build_report(
         f"## Genre Jaccard of top-{GENRE_K} neighbours (secondary, BIASED)",
         "",
         "Biased: genre names overlap tag names, so methods that lean on those tags score higher "
-        "without being better. Use as a sanity check only.",
+        "without being better. Use as a sanity check only. "
+        "category_weighted is additionally inflated because it uses the same Steam genre links directly.",
         "",
         f"Random-neighbour baseline: {random_baseline:.3f}",
         "",
@@ -234,7 +245,7 @@ def main(argv: list[str] | None = None) -> None:
     cfg = load_config()
     params = vectorization_params(cfg)
     methods, notes = (args.methods, ["Methods chosen with --methods."]) if args.methods else default_methods()
-    corpus = load_corpus(DB_PATH)
+    corpus = load_corpus(DB_PATH, alias_lookup(cfg))
     matrices = {m: vectorize(corpus, m, params) for m in methods}
     save_vectors(corpus, matrices)
     neighbors = {m: neighbor_indices(v, PAIR_K) for m, v in matrices.items()}

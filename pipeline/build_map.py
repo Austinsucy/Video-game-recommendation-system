@@ -33,6 +33,7 @@ from backend.app.db import DB_PATH
 from pipeline import publish
 from pipeline.config import (
     ARTIFACTS_DIR,
+    alias_lookup,
     is_valid_version_id,
     load_config,
     vectorization_params,
@@ -201,6 +202,8 @@ def corpus_hash(corpus: TagCorpus) -> str:
     digest.update(corpus.votes.tobytes())
     digest.update(corpus.order.tobytes())
     digest.update(json.dumps([corpus.titles, corpus.tags, corpus.descriptions]).encode())
+    digest.update(corpus.features.strength.tobytes())
+    digest.update(json.dumps([corpus.features.categories, corpus.features.names]).encode())
     return digest.hexdigest()
 
 
@@ -250,7 +253,7 @@ def main(argv: list[str] | None = None) -> None:
             f"WARNING: map version {version!r} already exists; "
             "--publish would refuse it. Use a new --version-id or map_version."
         )
-    corpus = load_corpus(DB_PATH)
+    corpus = load_corpus(DB_PATH, alias_lookup(cfg))
     build = build_map(corpus, cfg)
     publish.validate(
         build.clusters, build.positions, build.neighbors, set(corpus.game_ids.tolist())

@@ -4,17 +4,21 @@ Several weighting methods live side by side so they can be compared before one
 is chosen for the published map (config `vectorization.method`).
 
 Shape of the data:
-    TagCorpus.votes  (n_games, n_tags)  vote count, 0 where the game lacks the tag
-    method(corpus, params) -> (n_games, n_tags) non-negative weights, exactly 0
-                              wherever the game lacks the tag
+    TagCorpus.votes     (n_games, n_tags)  vote count, 0 where the game lacks the tag
+    TagCorpus.features  CuratedFeatures    strength (n_games, F), 0 where the game lacks it
+    tag method(corpus, params)     -> (n_games, n_tags) non-negative weights, exactly 0
+                                      wherever the game lacks the tag
+    feature method(corpus, params) -> (n_games, F) non-negative weights, exactly 0
+                                      wherever the game lacks the feature
 
 Steam keeps only each game's top 20 tags, so an absent tag means "not in the
 top 20", never "zero votes". Every method therefore weights only present tags,
 and vote counts are always normalised within the game first because they scale
 with the game's popularity.
 
-`category_weighted` instead works on the curated features (corpus.features) and
-the config's category weights; its vectors have one column per feature.
+The feature methods (FEATURE_METHODS, today only `category_weighted`) instead
+work on the curated features and the config's category weights; their vectors
+have one column per curated feature, not per tag.
 
 The core methods use pandas/NumPy/scikit-learn only. `desc_embed` imports
 sentence-transformers lazily, so nothing else needs it installed.
@@ -34,11 +38,30 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from backend.app.db import DB_PATH
-from pipeline.config import ARTIFACTS_DIR, alias_lookup, load_config, map_raw_tag
+from pipeline.config import ARTIFACTS_DIR, map_raw_tag
 
 SIMILARITY_DECIMALS = 10  # ties are decided by game_id, so last-bit float noise must not matter
 
 Params = Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class CuratedFeatures:
+    """The curated-feature view of the games, read only by the feature methods."""
+
+    strength: np.ndarray            # (n, F) in [0, 1], 0 where the game lacks the feature
+    categories: tuple[str, ...]     # (F,) ordered by (category, name)
+    names: tuple[str, ...]          # (F,)
+
+    def __post_init__(self) -> None:
+        if self.strength.ndim != 2:
+            raise ValueError(f"strength must be 2-D, got {self.strength.ndim}-D")
+        f = self.strength.shape[1]
+        if not f == len(self.categories) == len(self.names):
+            raise ValueError(
+                f"strength has {f} columns but {len(self.categories)} categories "
+                f"and {len(self.names)} names"
+            )
 
 
 @dataclass(frozen=True)
@@ -49,10 +72,7 @@ class TagCorpus:
     votes: np.ndarray           # (n, m) float, 0 where the tag is absent
     order: np.ndarray           # (n, m) 1-based rank in Steam's own tag order, 0 if absent
     descriptions: list[str]
-    # Curated-feature view, read only by `category_weighted`.
-    features: np.ndarray | None = None      # (n, F) strength in [0, 1], 0 where absent
-    feature_categories: tuple[str, ...] = ()  # (F,) ordered by (category, name)
-    feature_names: tuple[str, ...] = ()
+    features: CuratedFeatures
 
     @property
     def present(self) -> np.ndarray:
@@ -75,6 +95,11 @@ def feature_strengths(
     column = {key: j for j, key in enumerate(feature_keys)}
     row = {gid: i for i, gid in enumerate(game_ids)}
     strength = np.zeros((len(game_ids), len(feature_keys)))
+    # Known limit: `game_features` links were made with ingest-time aliases,
+    # while the strengths below are mapped with the `aliases` passed in. After
+    # changing `aliases`, re-run ingest before trusting category_weighted.
+    # A linked feature that no current raw tag maps to (genres, categories,
+    # platform, or a tag whose alias changed) keeps 1.0 and is never lowered.
     for gid, key in game_features:
         strength[row[gid], column[key]] = 1.0
     for i, tag_votes in enumerate(raw_tags):
@@ -91,7 +116,7 @@ def feature_strengths(
     return strength
 
 
-def load_corpus(db_path: Path | str = DB_PATH) -> TagCorpus:
+def load_corpus(db_path: Path | str, aliases: dict[str, tuple[str, str]]) -> TagCorpus:
     uri = Path(db_path).resolve().as_uri() + "?mode=ro"  # never creates a file
     conn = sqlite3.connect(uri, uri=True)
     try:
@@ -122,7 +147,7 @@ def load_corpus(db_path: Path | str = DB_PATH) -> TagCorpus:
         raw,
         keys,
         {(gid, key_of[fid]) for gid, fid in link_rows},
-        alias_lookup(load_config()),
+        aliases,
     )
     return TagCorpus(
         game_ids=np.array(game_ids),
@@ -131,9 +156,11 @@ def load_corpus(db_path: Path | str = DB_PATH) -> TagCorpus:
         votes=votes,
         order=order,
         descriptions=[r[2] or "" for r in rows],
-        features=strengths,
-        feature_categories=tuple(category for category, _ in keys),
-        feature_names=tuple(name for _, name in keys),
+        features=CuratedFeatures(
+            strength=strengths,
+            categories=tuple(category for category, _ in keys),
+            names=tuple(name for _, name in keys),
+        ),
     )
 
 
@@ -194,11 +221,10 @@ def category_weighted(corpus: TagCorpus, params: Params) -> np.ndarray:
     category's weight is its share of the vector however many features it has.
     Columns are the corpus's features, not its tags.
     """
-    if corpus.features is None:
-        raise ValueError("category_weighted needs a corpus loaded with curated features")
-    weights = corpus.features * tag_idf(corpus.features > 0)
-    categories = np.array(corpus.feature_categories)
-    for category in sorted(set(corpus.feature_categories)):
+    strength = corpus.features.strength
+    weights = strength * tag_idf(strength > 0)
+    categories = np.array(corpus.features.categories)
+    for category in sorted(set(corpus.features.categories)):
         block = categories == category
         norms = np.linalg.norm(weights[:, block], axis=1, keepdims=True)
         weights[:, block] *= params["category_weights"][category] / np.where(norms > 0, norms, 1.0)
@@ -309,6 +335,7 @@ def _hybrid(description_method: Callable[[TagCorpus, Params], np.ndarray]):
 
 EMBEDDING_METHODS = frozenset({"desc_embed", "hybrid_embed"})
 TFIDF_METHODS = frozenset({"desc_tfidf", "hybrid_tfidf"})
+FEATURE_METHODS = frozenset({"category_weighted"})  # (n, F) over curated features, not (n, tags)
 
 METHODS: dict[str, Callable[[TagCorpus, Params], np.ndarray]] = {
     "binary": binary,
@@ -328,7 +355,7 @@ METHODS: dict[str, Callable[[TagCorpus, Params], np.ndarray]] = {
 
 
 def vectorize(corpus: TagCorpus, method: str, params: Params) -> np.ndarray:
-    """Row-normalised vectors for the named method: (n, m tags), or (n, F features) for category_weighted."""
+    """Row-normalised vectors for the named method: (n, tags), or (n, F) for a FEATURE_METHODS method."""
     if method not in METHODS:
         raise ValueError(
             f"unknown vectorization method {method!r}; valid methods: {sorted(METHODS)}"

@@ -179,6 +179,11 @@ class FeatureRegistry:
             self.rows[key] = str(raw).strip()
         return key
 
+    def resolve(self, raw: str, aliases: dict[str, tuple[str, str]]) -> tuple[str, str]:
+        """The feature a raw genre or tag becomes: its alias if approved, else a display tag."""
+        key = map_raw_tag(raw, aliases)
+        return key if key in self.approved else self.ensure_tag(raw)
+
 
 def resolve_features(row, cfg: dict, aliases: dict, registry: FeatureRegistry):
     """Return (set of (category, name), coverage dict) for one game.
@@ -198,11 +203,7 @@ def resolve_features(row, cfg: dict, aliases: dict, registry: FeatureRegistry):
         if raw in demoted:
             found.add(registry.ensure_tag(raw))
             continue
-        hit = aliases.get(raw.strip().lower())
-        if hit and hit in registry.approved:
-            found.add(hit)
-        else:
-            found.add(registry.ensure_tag(raw))
+        found.add(registry.resolve(raw, aliases))
 
     # --- categories column -> multiplayer ----------------------------------
     cats_raw = as_list(row["categories"])
@@ -219,8 +220,7 @@ def resolve_features(row, cfg: dict, aliases: dict, registry: FeatureRegistry):
     # --- tags dict ---------------------------------------------------------
     tags_raw = row["tag_list"]
     for raw in tags_raw:
-        key = map_raw_tag(raw, aliases)
-        found.add(key if key in registry.approved else registry.ensure_tag(raw))
+        found.add(registry.resolve(raw, aliases))
 
     # --- coverage ----------------------------------------------------------
     # "absent" is relative to the CURRENT vocabulary. Expanding the vocabulary
@@ -355,7 +355,7 @@ def run(limit: int | None = None, reset: bool = False) -> dict:
             feats, cov = resolve_features(r, cfg, aliases, registry)
             resolved.append((game_id, feats, cov))
             for raw in r["tag_list"]:
-                if raw.strip().lower() not in aliases:
+                if map_raw_tag(raw, aliases)[0] == "tag":
                     unmapped[raw] = unmapped.get(raw, 0) + 1
 
         # features table: approved vocabulary + display-only tags discovered

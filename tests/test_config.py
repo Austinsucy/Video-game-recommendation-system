@@ -2,7 +2,7 @@
 import pytest
 
 from backend.app.models import VALID_CATEGORIES
-from pipeline.config import ConfigError, load_config, validate_config
+from pipeline.config import ConfigError, load_config, validate_category_weights, validate_config
 
 
 def test_real_config_loads():
@@ -132,5 +132,30 @@ def test_bad_top_level_values_are_rejected(changes):
 def test_layout_section_is_required():
     cfg = load_config()
     del cfg["layout"]
+    with pytest.raises(ConfigError):
+        validate_config(cfg)
+
+
+def _weights(**changes) -> dict:
+    return {**load_config()["category_weights"], **changes}
+
+
+@pytest.mark.parametrize(
+    "weights",
+    [
+        {k: v for k, v in _weights().items() if k != "genre"},
+        _weights(genre=-0.1),
+        _weights(genre=float("inf")),
+        _weights(genre=True),
+        {c: 0.0 for c in VALID_CATEGORIES},
+        _weights(nonsense=1.0),
+    ],
+    ids=["missing-key", "negative", "infinite", "bool", "all-zero", "unknown-key"],
+)
+def test_bad_category_weights_are_rejected(weights):
+    with pytest.raises(ConfigError):
+        validate_category_weights(weights)
+    cfg = load_config()
+    cfg["category_weights"] = weights
     with pytest.raises(ConfigError):
         validate_config(cfg)

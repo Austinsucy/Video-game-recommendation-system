@@ -16,9 +16,9 @@ from pipeline.build_map import (
     nearest_neighbors,
     separate_collisions,
 )
-from pipeline.config import load_config
+from pipeline.config import alias_lookup, load_config
 from pipeline.vectorize import TagCorpus, load_corpus
-from tests.conftest import N_GAMES, order_from_votes
+from tests.conftest import N_GAMES, no_features, order_from_votes
 
 N_TAGS = 12
 
@@ -49,6 +49,7 @@ def corpus() -> TagCorpus:
         votes=votes,
         order=order_from_votes(votes),
         descriptions=["" for _ in range(N_GAMES)],
+        features=no_features(N_GAMES),
     )
 
 
@@ -173,7 +174,7 @@ def test_clusters_separate_groups_that_the_2d_layout_merges():
 @pytest.mark.skipif(not DB_PATH.exists(), reason="run `python -m pipeline.ingest` first")
 def test_real_database_dry_build_validates():
     cfg = load_config()
-    corpus = load_corpus(DB_PATH)
+    corpus = load_corpus(DB_PATH, alias_lookup(load_config()))
     build = build_map(corpus, cfg)
     publish.validate(
         build.clusters, build.positions, build.neighbors, set(corpus.game_ids.tolist())

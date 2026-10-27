@@ -9,16 +9,18 @@ from backend.app.db import DB_PATH
 from pipeline.config import alias_lookup, load_config, vectorization_params
 from pipeline.vectorize import (
     EMBEDDING_METHODS,
+    FEATURE_METHODS,
     METHODS,
+    CuratedFeatures,
     TagCorpus,
     feature_strengths,
     load_corpus,
     vectorize,
 )
-from tests.conftest import order_from_votes
+from tests.conftest import no_features, order_from_votes
 
 CORE_METHODS = [
-    m for m in METHODS if m not in EMBEDDING_METHODS and m != "category_weighted"
+    m for m in METHODS if m not in EMBEDDING_METHODS and m not in FEATURE_METHODS
 ]
 
 PARAMS = {
@@ -55,6 +57,7 @@ def corpus() -> TagCorpus:
             "A sprawling adventure about a lone knight.",
             "Quiet moments between rounds.",
         ],
+        features=no_features(4),
     )
 
 
@@ -194,7 +197,7 @@ def test_configured_method_is_a_known_method():
 
 @pytest.mark.skipif(not DB_PATH.exists(), reason="run `python -m pipeline.ingest` first")
 def test_real_database_smoke():
-    corpus = load_corpus()
+    corpus = load_corpus(DB_PATH, alias_lookup(load_config()))
     n_games, n_tags = corpus.votes.shape
     assert n_games > 0 and n_tags > 0
     assert len(corpus.titles) == len(corpus.descriptions) == n_games
@@ -207,10 +210,10 @@ def test_real_database_smoke():
         assert np.all(vectors[~corpus.present] == 0)
 
     vectors = vectorize(corpus, "category_weighted", params)
-    assert vectors.shape == corpus.features.shape
-    assert len(corpus.feature_names) == len(corpus.feature_categories) == vectors.shape[1]
-    assert np.all(vectors[corpus.features == 0] == 0)
-    zero_rows = ~(corpus.features > 0).any(axis=1)
+    strength = corpus.features.strength
+    assert vectors.shape == strength.shape
+    assert np.all(vectors[strength == 0] == 0)
+    zero_rows = ~(strength > 0).any(axis=1)
     norms = np.linalg.norm(vectors, axis=1)
     np.testing.assert_allclose(norms[~zero_rows], 1.0)
     assert np.all(norms[zero_rows] == 0) and not np.isnan(vectors).any()
@@ -219,7 +222,7 @@ def test_real_database_smoke():
 def test_load_corpus_does_not_create_a_missing_database(tmp_path):
     missing = tmp_path / "nope.db"
     with pytest.raises(sqlite3.OperationalError):
-        load_corpus(missing)
+        load_corpus(missing, {})
     assert not missing.exists()
 
 
@@ -241,9 +244,7 @@ def feature_corpus(strengths) -> TagCorpus:
         votes=np.ones((n, 1)),
         order=np.ones((n, 1)),
         descriptions=[""] * n,
-        features=strengths,
-        feature_categories=FEATURE_CATEGORIES,
-        feature_names=FEATURE_NAMES,
+        features=CuratedFeatures(strengths, FEATURE_CATEGORIES, FEATURE_NAMES),
     )
 
 
@@ -334,11 +335,8 @@ def test_a_category_with_many_features_does_not_outweigh_one_with_a_single_featu
     )
 
 
-def test_missing_category_weight_is_an_error():
-    with pytest.raises(KeyError):
-        vectorize(feature_corpus(FEATURES), "category_weighted", {"category_weights": {"genre": 1.0}})
-
-
-def test_category_weighted_needs_a_corpus_with_features(corpus):
-    with pytest.raises(ValueError, match="curated features"):
-        vectorize(corpus, "category_weighted", PARAMS)
+def test_curated_features_reject_mismatched_shapes():
+    with pytest.raises(ValueError):
+        CuratedFeatures(np.zeros(3), (), ())
+    with pytest.raises(ValueError):
+        CuratedFeatures(np.zeros((2, 2)), ("genre", "genre"), ("action",))
