@@ -6,17 +6,20 @@ import numpy as np
 import pytest
 
 from backend.app.db import DB_PATH
-from pipeline.config import load_config
+from pipeline.config import alias_lookup, load_config, vectorization_params
 from pipeline.vectorize import (
     EMBEDDING_METHODS,
     METHODS,
     TagCorpus,
+    feature_strengths,
     load_corpus,
     vectorize,
 )
 from tests.conftest import order_from_votes
 
-CORE_METHODS = [m for m in METHODS if m not in EMBEDDING_METHODS]
+CORE_METHODS = [
+    m for m in METHODS if m not in EMBEDDING_METHODS and m != "category_weighted"
+]
 
 PARAMS = {
     "description_floor": 0.4,
@@ -25,6 +28,7 @@ PARAMS = {
     "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
     "embedding_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
     "embedding_tag_template": "a video game tagged {tag}",
+    "category_weights": {"genre": 1.0, "theme": 1.0, "tag": 0.0},
 }
 
 
@@ -195,12 +199,21 @@ def test_real_database_smoke():
     assert n_games > 0 and n_tags > 0
     assert len(corpus.titles) == len(corpus.descriptions) == n_games
     assert list(corpus.tags) == sorted(corpus.tags)
-    params = load_config()["vectorization"]
+    params = vectorization_params(load_config())
     for method in CORE_METHODS:
         vectors = vectorize(corpus, method, params)
         assert vectors.shape == (n_games, n_tags)
         np.testing.assert_allclose(np.linalg.norm(vectors, axis=1), 1.0)
         assert np.all(vectors[~corpus.present] == 0)
+
+    vectors = vectorize(corpus, "category_weighted", params)
+    assert vectors.shape == corpus.features.shape
+    assert len(corpus.feature_names) == len(corpus.feature_categories) == vectors.shape[1]
+    assert np.all(vectors[corpus.features == 0] == 0)
+    zero_rows = ~(corpus.features > 0).any(axis=1)
+    norms = np.linalg.norm(vectors, axis=1)
+    np.testing.assert_allclose(norms[~zero_rows], 1.0)
+    assert np.all(norms[zero_rows] == 0) and not np.isnan(vectors).any()
 
 
 def test_load_corpus_does_not_create_a_missing_database(tmp_path):
@@ -208,3 +221,124 @@ def test_load_corpus_does_not_create_a_missing_database(tmp_path):
     with pytest.raises(sqlite3.OperationalError):
         load_corpus(missing)
     assert not missing.exists()
+
+
+# --- category_weighted -------------------------------------------------------
+
+# columns: genre/action, genre/rpg, genre/puzzle, theme/space, theme/fantasy,
+# theme/horror, theme/war, theme/pirates
+FEATURE_CATEGORIES = ("genre", "genre", "genre", "theme", "theme", "theme", "theme", "theme")
+FEATURE_NAMES = ("action", "rpg", "puzzle", "space", "fantasy", "horror", "war", "pirates")
+
+
+def feature_corpus(strengths) -> TagCorpus:
+    strengths = np.array(strengths, dtype=float)
+    n = len(strengths)
+    return TagCorpus(
+        game_ids=np.arange(1, n + 1),
+        titles=[f"G{i}" for i in range(n)],
+        tags=["x"],
+        votes=np.ones((n, 1)),
+        order=np.ones((n, 1)),
+        descriptions=[""] * n,
+        features=strengths,
+        feature_categories=FEATURE_CATEGORIES,
+        feature_names=FEATURE_NAMES,
+    )
+
+
+def category_share(vectors: np.ndarray, category: str) -> np.ndarray:
+    block = np.array(FEATURE_CATEGORIES) == category
+    return np.linalg.norm(vectors[:, block], axis=1) / np.linalg.norm(vectors, axis=1)
+
+
+FEATURES = [
+    [1.0, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, 0.3, 0.9, 0.0, 0.0, 0.0],
+    [0.4, 0.0, 0.0, 0.0, 0.0, 1.0, 0.6, 0.2],
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+]
+WEIGHTS = {"genre": 1.0, "theme": 1.0}
+
+
+def weighted(strengths=FEATURES, **weights) -> np.ndarray:
+    params = {"category_weights": {**WEIGHTS, **weights}}
+    return vectorize(feature_corpus(strengths), "category_weighted", params)
+
+
+def test_category_weighted_rows_are_unit_norm_or_zero_and_deterministic():
+    vectors = weighted()
+    np.testing.assert_allclose(np.linalg.norm(vectors[:3], axis=1), 1.0)
+    assert np.all(vectors[3] == 0) and not np.isnan(vectors).any()
+    np.testing.assert_array_equal(vectors, weighted())
+
+
+def test_category_weighted_is_zero_exactly_where_the_game_lacks_the_feature():
+    vectors = weighted()
+    assert np.all(vectors[np.array(FEATURES) == 0] == 0)
+    assert np.all(vectors[np.array(FEATURES) > 0] > 0)
+
+
+def test_tag_with_more_votes_gets_more_weight_within_a_game():
+    # Two games share the same two themes, so IDF is equal and only strength differs.
+    vectors = weighted([[0, 0, 0, 0.9, 0.3, 0, 0, 0], [0, 0, 0, 0.9, 0.3, 0, 0, 0]])
+    assert vectors[0, 3] > vectors[0, 4] > 0
+
+
+def test_feature_strength_follows_the_games_log_votes_and_takes_the_max_over_tags():
+    keys = [("genre", "rpg"), ("tag", "cozy")]
+    aliases = alias_lookup(
+        {"aliases": {"RPG": ["genre", "rpg"], "Role-Playing": ["genre", "rpg"]}}
+    )
+    raw = [{"RPG": 100, "Cozy": 10, "Role-Playing": 40}]
+    links = {(1, keys[0]), (1, keys[1])}
+    strength = feature_strengths([1], raw, keys, links, aliases)
+    assert strength[0, 0] == pytest.approx(1.0)  # RPG is the game's top tag
+    assert strength[0, 1] == pytest.approx(np.log1p(10) / np.log1p(100))
+
+
+def test_feature_without_a_matching_raw_tag_has_strength_one():
+    keys = [("multiplayer", "co_op"), ("genre", "rpg"), ("genre", "indie")]
+    aliases = alias_lookup({"aliases": {"RPG": ["genre", "rpg"]}})
+    raw = [{"RPG": 100, "Cozy": 5}]
+    links = {(1, keys[0]), (1, keys[1])}
+    strength = feature_strengths([1], raw, keys, links, aliases)
+    assert strength[0, 0] == 1.0     # only in Steam's categories column
+    assert strength[0, 1] == 1.0     # tag-derived, top tag
+    assert strength[0, 2] == 0.0     # not linked, so absent
+
+
+def test_a_tag_that_is_not_linked_does_not_create_a_feature():
+    keys = [("genre", "rpg")]
+    aliases = alias_lookup({"aliases": {"RPG": ["genre", "rpg"]}})
+    strength = feature_strengths([1], [{"RPG": 100}], keys, set(), aliases)
+    assert strength[0, 0] == 0.0
+
+
+def test_raising_a_category_weight_raises_its_share_and_zero_removes_it():
+    base = weighted()[:3]
+    heavier = weighted(genre=3.0)[:3]
+    assert np.all(category_share(heavier, "genre") > category_share(base, "genre"))
+    assert np.all(category_share(heavier, "theme") < category_share(base, "theme"))
+    removed = weighted(genre=0.0)[:3]
+    assert np.all(category_share(removed, "genre") == 0)
+    np.testing.assert_allclose(np.linalg.norm(removed, axis=1), 1.0)
+
+
+def test_a_category_with_many_features_does_not_outweigh_one_with_a_single_feature():
+    # genre has one feature; theme has all five. Equal weights give equal block norms.
+    game = [[1.0, 0, 0, 1.0, 1.0, 1.0, 1.0, 1.0]]
+    vectors = weighted(game * 2)
+    np.testing.assert_allclose(
+        category_share(vectors, "genre"), category_share(vectors, "theme")
+    )
+
+
+def test_missing_category_weight_is_an_error():
+    with pytest.raises(KeyError):
+        vectorize(feature_corpus(FEATURES), "category_weighted", {"category_weights": {"genre": 1.0}})
+
+
+def test_category_weighted_needs_a_corpus_with_features(corpus):
+    with pytest.raises(ValueError, match="curated features"):
+        vectorize(corpus, "category_weighted", PARAMS)

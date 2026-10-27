@@ -31,7 +31,12 @@ from sklearn.decomposition import PCA
 
 from backend.app.db import DB_PATH
 from pipeline import publish
-from pipeline.config import ARTIFACTS_DIR, is_valid_version_id, load_config
+from pipeline.config import (
+    ARTIFACTS_DIR,
+    is_valid_version_id,
+    load_config,
+    vectorization_params,
+)
 from pipeline.vectorize import (
     SIMILARITY_DECIMALS,
     TagCorpus,
@@ -163,7 +168,7 @@ def cluster_rows(n_clusters: int, colors: list[str]) -> list[dict]:
 def build_map(corpus: TagCorpus, cfg: dict) -> MapBuild:
     vec_cfg, layout = cfg["vectorization"], cfg["layout"]
     seed, n_clusters = cfg["random_seed"], cfg["cluster_count"]
-    vectors = vectorize(corpus, vec_cfg["method"], vec_cfg)
+    vectors = vectorize(corpus, vec_cfg["method"], vectorization_params(cfg))
 
     coords, variance = layout_2d(vectors, layout["coordinate_extent"])
     coords, moved = separate_collisions(

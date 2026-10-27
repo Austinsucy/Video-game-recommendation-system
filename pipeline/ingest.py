@@ -31,7 +31,7 @@ from backend.app.models import (
     GameSource,
     MapVersion,
 )
-from pipeline.config import REPO_ROOT, alias_lookup, load_config
+from pipeline.config import REPO_ROOT, alias_lookup, load_config, map_raw_tag, slugify
 
 CSV_COLUMNS = [
     "appid", "name", "release_date", "short_description", "header_image",
@@ -48,11 +48,6 @@ TAG_DERIVED = ("gameplay", "mechanic", "structure", "theme", "perspective")
 # ---------------------------------------------------------------------------
 # small helpers
 # ---------------------------------------------------------------------------
-def slugify(value: str) -> str:
-    s = re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower())
-    return s.strip("_") or "unknown"
-
-
 def normalise_title(value: str) -> str:
     """title_search: lowercase, punctuation stripped, whitespace collapsed.
 
@@ -224,11 +219,8 @@ def resolve_features(row, cfg: dict, aliases: dict, registry: FeatureRegistry):
     # --- tags dict ---------------------------------------------------------
     tags_raw = row["tag_list"]
     for raw in tags_raw:
-        hit = aliases.get(raw.strip().lower())
-        if hit and hit in registry.approved:
-            found.add(hit)
-        else:
-            found.add(registry.ensure_tag(raw))
+        key = map_raw_tag(raw, aliases)
+        found.add(key if key in registry.approved else registry.ensure_tag(raw))
 
     # --- coverage ----------------------------------------------------------
     # "absent" is relative to the CURRENT vocabulary. Expanding the vocabulary

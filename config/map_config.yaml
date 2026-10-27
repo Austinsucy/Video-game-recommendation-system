@@ -99,9 +99,9 @@ fields:
     - "average_playtime_forever"
 
 # -----------------------------------------------------------------------------
-# NOTE: the current tag-vector pipeline (vectorization -> build_map) does not
-# read category_weights or vocabulary yet. Whether to fold the curated
-# categories back in is an open team decision (GM 1).
+# NOTE: only the `category_weighted` vectorization method reads these weights.
+# The other methods work on raw tag votes. Which method publishes is an open
+# team decision (GM 1).
 #
 # Category weights - Austin/Kayne tune these.
 # `tag` is 0.0 on purpose: the scrum doc says display tags must not become an

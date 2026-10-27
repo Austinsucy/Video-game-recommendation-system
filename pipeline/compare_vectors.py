@@ -18,7 +18,7 @@ import numpy as np
 import yaml
 
 from backend.app.db import DB_PATH
-from pipeline.config import ARTIFACTS_DIR, REPO_ROOT, load_config
+from pipeline.config import ARTIFACTS_DIR, REPO_ROOT, load_config, vectorization_params
 from pipeline.vectorize import (
     EMBEDDING_METHODS,
     METHODS,
@@ -232,7 +232,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     cfg = load_config()
-    params = cfg["vectorization"]
+    params = vectorization_params(cfg)
     methods, notes = (args.methods, ["Methods chosen with --methods."]) if args.methods else default_methods()
     corpus = load_corpus(DB_PATH)
     matrices = {m: vectorize(corpus, m, params) for m in methods}

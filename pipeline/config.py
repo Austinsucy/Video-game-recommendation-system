@@ -98,6 +98,12 @@ def validate_config(cfg: dict) -> None:
     if not _is_int(cfg.get("random_seed")):
         raise ConfigError("random_seed must be an integer")
 
+    for category, weight in cfg["category_weights"].items():
+        if not (_is_number(weight) and math.isfinite(weight) and weight >= 0):
+            raise ConfigError(
+                f"category_weights.{category} must be a finite number >= 0"
+            )
+
     _validate_vectorization(cfg["vectorization"])
     _validate_layout(cfg["layout"], cluster_count)
 
@@ -171,3 +177,18 @@ def _validate_layout(layout, cluster_count: int) -> None:
 def alias_lookup(cfg: dict) -> dict[str, tuple[str, str]]:
     """Case-insensitive raw-string -> (category, name) map."""
     return {raw.strip().lower(): (t[0], t[1]) for raw, t in cfg["aliases"].items()}
+
+
+def slugify(value: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower())
+    return s.strip("_") or "unknown"
+
+
+def map_raw_tag(raw: str, aliases: dict[str, tuple[str, str]]) -> tuple[str, str]:
+    """The (category, name) a raw Steam tag becomes: its alias, else a `tag` feature."""
+    return aliases.get(raw.strip().lower()) or ("tag", slugify(raw))
+
+
+def vectorization_params(cfg: dict) -> dict:
+    """Everything `pipeline.vectorize.vectorize` reads from the config."""
+    return {**cfg["vectorization"], "category_weights": cfg["category_weights"]}

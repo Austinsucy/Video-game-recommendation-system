@@ -13,6 +13,9 @@ top 20", never "zero votes". Every method therefore weights only present tags,
 and vote counts are always normalised within the game first because they scale
 with the game's popularity.
 
+`category_weighted` instead works on the curated features (corpus.features) and
+the config's category weights; its vectors have one column per feature.
+
 The core methods use pandas/NumPy/scikit-learn only. `desc_embed` imports
 sentence-transformers lazily, so nothing else needs it installed.
 """
@@ -31,7 +34,7 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from backend.app.db import DB_PATH
-from pipeline.config import ARTIFACTS_DIR
+from pipeline.config import ARTIFACTS_DIR, alias_lookup, load_config, map_raw_tag
 
 SIMILARITY_DECIMALS = 10  # ties are decided by game_id, so last-bit float noise must not matter
 
@@ -46,10 +49,46 @@ class TagCorpus:
     votes: np.ndarray           # (n, m) float, 0 where the tag is absent
     order: np.ndarray           # (n, m) 1-based rank in Steam's own tag order, 0 if absent
     descriptions: list[str]
+    # Curated-feature view, read only by `category_weighted`.
+    features: np.ndarray | None = None      # (n, F) strength in [0, 1], 0 where absent
+    feature_categories: tuple[str, ...] = ()  # (F,) ordered by (category, name)
+    feature_names: tuple[str, ...] = ()
 
     @property
     def present(self) -> np.ndarray:
         return self.votes > 0
+
+
+def feature_strengths(
+    game_ids: list[int],
+    raw_tags: list[dict[str, float]],
+    feature_keys: list[tuple[str, str]],
+    game_features: set[tuple[int, tuple[str, str]]],
+    aliases: dict[str, tuple[str, str]],
+) -> np.ndarray:
+    """(n, F) strength of each curated feature in each game.
+
+    A feature the game has scores the largest vote weight among the game's raw
+    tags that map to it (ingest's own mapping). A feature that came only from
+    the genres, categories or platform fields has no tag votes and scores 1.
+    """
+    column = {key: j for j, key in enumerate(feature_keys)}
+    row = {gid: i for i, gid in enumerate(game_ids)}
+    strength = np.zeros((len(game_ids), len(feature_keys)))
+    for gid, key in game_features:
+        strength[row[gid], column[key]] = 1.0
+    for i, tag_votes in enumerate(raw_tags):
+        if not tag_votes:
+            continue
+        weights = _log_weights(np.array(list(tag_votes.values()), dtype=float)[None, :])[0]
+        tagged: dict[int, float] = {}
+        for raw, weight in zip(tag_votes, weights):
+            j = column.get(map_raw_tag(raw, aliases))
+            if j is not None and strength[i, j] > 0:
+                tagged[j] = max(tagged.get(j, 0.0), float(weight))
+        for j, weight in tagged.items():
+            strength[i, j] = weight
+    return strength
 
 
 def load_corpus(db_path: Path | str = DB_PATH) -> TagCorpus:
@@ -60,6 +99,10 @@ def load_corpus(db_path: Path | str = DB_PATH) -> TagCorpus:
             "SELECT game_id, title, description, raw_tags_json "
             "FROM games ORDER BY game_id"
         ).fetchall()
+        feature_rows = conn.execute(
+            "SELECT feature_id, category, name FROM features ORDER BY category, name"
+        ).fetchall()
+        link_rows = conn.execute("SELECT game_id, feature_id FROM game_features").fetchall()
     finally:
         conn.close()
     raw = [json.loads(r[3]) if r[3] else {} for r in rows]
@@ -71,13 +114,26 @@ def load_corpus(db_path: Path | str = DB_PATH) -> TagCorpus:
         for position, (tag, count) in enumerate(tag_votes.items(), start=1):
             votes[i, column[tag]] = count
             order[i, column[tag]] = position
+    keys = [(category, name) for _, category, name in feature_rows]
+    key_of = {feature_id: (category, name) for feature_id, category, name in feature_rows}
+    game_ids = [r[0] for r in rows]
+    strengths = feature_strengths(
+        game_ids,
+        raw,
+        keys,
+        {(gid, key_of[fid]) for gid, fid in link_rows},
+        alias_lookup(load_config()),
+    )
     return TagCorpus(
-        game_ids=np.array([r[0] for r in rows]),
+        game_ids=np.array(game_ids),
         titles=[r[1] for r in rows],
         tags=tags,
         votes=votes,
         order=order,
         descriptions=[r[2] or "" for r in rows],
+        features=strengths,
+        feature_categories=tuple(category for category, _ in keys),
+        feature_names=tuple(name for _, name in keys),
     )
 
 
@@ -95,8 +151,12 @@ def votes_max(corpus: TagCorpus, params: Params) -> np.ndarray:
     return corpus.votes / _row_max(corpus.votes)
 
 
+def _log_weights(votes: np.ndarray) -> np.ndarray:
+    return np.log1p(votes) / np.log1p(_row_max(votes))
+
+
 def votes_log(corpus: TagCorpus, params: Params) -> np.ndarray:
-    return np.log1p(corpus.votes) / np.log1p(_row_max(corpus.votes))
+    return _log_weights(corpus.votes)
 
 
 def votes_rank(corpus: TagCorpus, params: Params) -> np.ndarray:
@@ -122,6 +182,27 @@ def _with_idf(base: Callable[[TagCorpus, Params], np.ndarray]):
         return base(corpus, params) * tag_idf(corpus.present)
 
     return weighted
+
+
+# --- curated-feature method -------------------------------------------------
+
+def category_weighted(corpus: TagCorpus, params: Params) -> np.ndarray:
+    """(n, F) curated-feature weights, one L2-normalised block per category.
+
+    Strength x IDF per feature, then each category's block is unit-normalised
+    within the game and scaled by `params["category_weights"][category]`, so a
+    category's weight is its share of the vector however many features it has.
+    Columns are the corpus's features, not its tags.
+    """
+    if corpus.features is None:
+        raise ValueError("category_weighted needs a corpus loaded with curated features")
+    weights = corpus.features * tag_idf(corpus.features > 0)
+    categories = np.array(corpus.feature_categories)
+    for category in sorted(set(corpus.feature_categories)):
+        block = categories == category
+        norms = np.linalg.norm(weights[:, block], axis=1, keepdims=True)
+        weights[:, block] *= params["category_weights"][category] / np.where(norms > 0, norms, 1.0)
+    return weights
 
 
 # --- description methods ----------------------------------------------------
@@ -242,11 +323,12 @@ METHODS: dict[str, Callable[[TagCorpus, Params], np.ndarray]] = {
     "desc_embed": desc_embed,
     "hybrid_tfidf": _hybrid(desc_tfidf),
     "hybrid_embed": _hybrid(desc_embed),
+    "category_weighted": category_weighted,
 }
 
 
 def vectorize(corpus: TagCorpus, method: str, params: Params) -> np.ndarray:
-    """(n, m) row-normalised vectors for the named method."""
+    """Row-normalised vectors for the named method: (n, m tags), or (n, F features) for category_weighted."""
     if method not in METHODS:
         raise ValueError(
             f"unknown vectorization method {method!r}; valid methods: {sorted(METHODS)}"
