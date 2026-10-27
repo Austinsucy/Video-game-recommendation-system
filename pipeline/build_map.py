@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import json
 import sqlite3
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,10 +31,16 @@ from sklearn.decomposition import PCA
 
 from backend.app.db import DB_PATH
 from pipeline import publish
-from pipeline.config import load_config
-from pipeline.vectorize import ARTIFACTS_DIR, TagCorpus, load_corpus, vectorize
+from pipeline.config import ARTIFACTS_DIR, is_valid_version_id, load_config
+from pipeline.vectorize import (
+    SIMILARITY_DECIMALS,
+    TagCorpus,
+    load_corpus,
+    neighbor_indices,
+    vectorize,
+)
 
-SIMILARITY_DECIMALS = 10  # ties are decided by game_id, so last-bit float noise must not matter
+MAX_SEPARATION_PASSES = 100
 
 
 @dataclass(frozen=True)
@@ -47,39 +54,41 @@ class MapBuild:
 
 
 def nearest_neighbors(vectors: np.ndarray, game_ids: np.ndarray, k: int) -> list[dict]:
-    """Each game's k most similar other games, best first, ties by game_id."""
-    if not 0 < k < len(game_ids):
-        raise ValueError(f"need 0 < k < {len(game_ids)} games, got k={k}")
-    sim = np.round(vectors @ vectors.T, SIMILARITY_DECIMALS)
-    np.fill_diagonal(sim, -np.inf)
-    out = []
-    for row in range(len(game_ids)):
-        best = np.lexsort((game_ids, -sim[row]))[:k]
-        for rank, col in enumerate(best, start=1):
-            out.append(
-                {
-                    "game_id": int(game_ids[row]),
-                    "neighbor_game_id": int(game_ids[col]),
-                    "similarity_score": float(sim[row, col]),
-                    "rank": rank,
-                }
-            )
-    return out
+    """Each game's k most similar other games as publish-ready rows, best first."""
+    best = neighbor_indices(vectors, k)
+    scores = np.round(np.einsum("ij,ikj->ik", vectors, vectors[best]), SIMILARITY_DECIMALS)
+    return [
+        {
+            "game_id": int(game_ids[row]),
+            "neighbor_game_id": int(game_ids[col]),
+            "similarity_score": float(scores[row, rank]),
+            "rank": rank + 1,
+        }
+        for row in range(len(game_ids))
+        for rank, col in enumerate(best[row])
+    ]
 
 
-def layout_2d(
-    vectors: np.ndarray, seed: int, extent: float
-) -> tuple[np.ndarray, tuple[float, float]]:
+def layout_2d(vectors: np.ndarray, extent: float) -> tuple[np.ndarray, tuple[float, float]]:
     """(n, 2) PCA coordinates scaled so the largest |coordinate| is `extent`.
 
-    Also returns the variance ratio each of the two axes explains.
+    Also returns the variance ratio each of the two axes explains. The full
+    SVD solver is deterministic, so no seed is involved. Collision separation
+    afterwards can push a point slightly past `extent`.
     """
-    pca = PCA(n_components=2, svd_solver="full", random_state=seed)
+    pca = PCA(n_components=2, svd_solver="full")
     coords = pca.fit_transform(vectors)
     peak = np.abs(coords).max()
     if peak > 0:
         coords = coords * (extent / peak)
     return coords, tuple(float(r) for r in pca.explained_variance_ratio_)
+
+
+def _min_pairwise_distance(coords: np.ndarray) -> float:
+    diff = coords[:, None, :] - coords[None, :, :]
+    dist = np.hypot(diff[..., 0], diff[..., 1])
+    np.fill_diagonal(dist, np.inf)
+    return float(dist.min()) if len(coords) > 1 else float("inf")
 
 
 def separate_collisions(
@@ -88,29 +97,49 @@ def separate_collisions(
     """Spread apart points that sit closer than `min_distance`.
 
     Games with identical tag vectors share one coordinate, which would hide all
-    but one of them. Each group of mutually close points is placed on a small
-    ring around its centre, in game_id order, so no two are closer than
-    `min_distance`. A group is joined through chains of close points. Returns
-    the new coordinates and how many points moved.
-    """
-    diff = coords[:, None, :] - coords[None, :, :]
-    close = np.hypot(diff[..., 0], diff[..., 1]) < min_distance
-    _, group = connected_components(csr_matrix(close), directed=False)
+    but one of them. Each group of mutually close points (joined through chains
+    of close points) is placed on a small ring around its centre, in game_id
+    order. A ring can land near a point outside its group, so grouping and
+    placement repeat until a pass moves nothing.
 
+    Guarantee: on return every pair of points is at least `min_distance` apart,
+    or this raises. Points can end slightly farther from the origin than they
+    started. Returns the new coordinates and how many distinct points moved.
+    """
     out = coords.copy()
-    moved = 0
-    for g in np.unique(group):
-        members = np.flatnonzero(group == g)
-        if len(members) < 2:
-            continue
-        members = members[np.argsort(game_ids[members], kind="stable")]
-        centre = coords[members].mean(axis=0)
-        # Chord between ring neighbours is 2 r sin(pi/k); the factor adds float margin.
-        radius = 1.001 * min_distance / (2 * np.sin(np.pi / len(members)))
-        angles = 2 * np.pi * np.arange(len(members)) / len(members)
-        out[members] = centre + radius * np.column_stack([np.cos(angles), np.sin(angles)])
-        moved += len(members)
-    return out, moved
+    moved: set[int] = set()
+    for _ in range(MAX_SEPARATION_PASSES):
+        diff = out[:, None, :] - out[None, :, :]
+        close = np.hypot(diff[..., 0], diff[..., 1]) < min_distance
+        _, group = connected_components(csr_matrix(close), directed=False)
+        placed = out.copy()
+        changed = False
+        for g in np.unique(group):
+            members = np.flatnonzero(group == g)
+            if len(members) < 2:
+                continue
+            members = members[np.argsort(game_ids[members], kind="stable")]
+            centre = out[members].mean(axis=0)
+            # Chord between ring neighbours is 2 r sin(pi/k); the factor adds float margin.
+            radius = 1.001 * min_distance / (2 * np.sin(np.pi / len(members)))
+            angles = 2 * np.pi * np.arange(len(members)) / len(members)
+            placed[members] = centre + radius * np.column_stack([np.cos(angles), np.sin(angles)])
+            moved.update(members.tolist())
+            changed = True
+        out = placed
+        if not changed:
+            break
+    else:
+        raise RuntimeError(
+            f"collision separation did not settle in {MAX_SEPARATION_PASSES} passes"
+        )
+    closest = _min_pairwise_distance(out)
+    if closest < min_distance:
+        raise RuntimeError(
+            f"collision separation left two games {closest:.6g} apart, "
+            f"below collision_min_distance {min_distance}"
+        )
+    return out, len(moved)
 
 
 def assign_clusters(vectors: np.ndarray, n_clusters: int, seed: int) -> np.ndarray:
@@ -136,7 +165,7 @@ def build_map(corpus: TagCorpus, cfg: dict) -> MapBuild:
     seed, n_clusters = cfg["random_seed"], cfg["cluster_count"]
     vectors = vectorize(corpus, vec_cfg["method"], vec_cfg)
 
-    coords, variance = layout_2d(vectors, seed, layout["coordinate_extent"])
+    coords, variance = layout_2d(vectors, layout["coordinate_extent"])
     coords, moved = separate_collisions(
         coords, corpus.game_ids, layout["collision_min_distance"]
     )
@@ -165,14 +194,17 @@ def corpus_hash(corpus: TagCorpus) -> str:
     digest = hashlib.sha256()
     digest.update(corpus.game_ids.tobytes())
     digest.update(corpus.votes.tobytes())
+    digest.update(corpus.order.tobytes())
     digest.update(json.dumps([corpus.titles, corpus.tags, corpus.descriptions]).encode())
     return digest.hexdigest()
 
 
-def known_game_ids(db_path: Path) -> set[int]:
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+def map_version_exists(db_path: Path, version: str) -> bool:
+    conn = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
     try:
-        return {r[0] for r in conn.execute("SELECT game_id FROM games")}
+        return conn.execute(
+            "SELECT 1 FROM map_versions WHERE map_version_id = ?", (version,)
+        ).fetchone() is not None
     finally:
         conn.close()
 
@@ -200,11 +232,23 @@ def main(argv: list[str] | None = None) -> None:
 
     cfg = load_config()
     version = args.version_id or cfg["map_version"]
+    if not is_valid_version_id(version):
+        parser.error("--version-id must match [A-Za-z0-9._-]+ and not contain '..'")
     method = cfg["vectorization"]["method"]
+    if map_version_exists(DB_PATH, version):
+        if args.publish:
+            sys.exit(
+                f"map version {version!r} already exists in the database; "
+                "choose a new --version-id or map_version. Nothing was written."
+            )
+        print(
+            f"WARNING: map version {version!r} already exists; "
+            "--publish would refuse it. Use a new --version-id or map_version."
+        )
     corpus = load_corpus(DB_PATH)
     build = build_map(corpus, cfg)
     publish.validate(
-        build.clusters, build.positions, build.neighbors, known_game_ids(DB_PATH)
+        build.clusters, build.positions, build.neighbors, set(corpus.game_ids.tolist())
     )
 
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -231,7 +275,7 @@ def main(argv: list[str] | None = None) -> None:
             build.positions,
             build.neighbors,
             dataset_hash=corpus_hash(corpus),
-            config_snapshot=cfg,
+            config_snapshot={**cfg, "map_version": version},
             feature_artifact_ref=f"vectorization:{method}",
         )
         print(f"published {version}")

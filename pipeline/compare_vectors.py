@@ -18,13 +18,14 @@ import numpy as np
 import yaml
 
 from backend.app.db import DB_PATH
-from pipeline.config import REPO_ROOT, load_config
+from pipeline.config import ARTIFACTS_DIR, REPO_ROOT, load_config
 from pipeline.vectorize import (
-    ARTIFACTS_DIR,
     EMBEDDING_METHODS,
     METHODS,
+    TFIDF_METHODS,
     TagCorpus,
     load_corpus,
+    neighbor_indices,
     tfidf_relevance,
     vectorize,
 )
@@ -37,24 +38,19 @@ GENRE_K = 10
 PROBES = ["Apex Legends™", "ELDEN RING", "Factorio", "Slay the Spire", "Resident Evil 2"]
 
 
-def top_k_neighbors(vectors: np.ndarray, k: int) -> np.ndarray:
-    """(n, k) row indices of each game's most cosine-similar other games."""
-    unit = vectors / np.maximum(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-12)
-    sim = unit @ unit.T
-    np.fill_diagonal(sim, -np.inf)
-    return np.argsort(-sim, axis=1, kind="stable")[:, :k]
-
-
 def load_genres(db_path: Path, game_ids: np.ndarray) -> list[set[str]]:
     index = {int(g): i for i, g in enumerate(game_ids)}
     genres: list[set[str]] = [set() for _ in game_ids]
-    with sqlite3.connect(db_path) as conn:
+    conn = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
+    try:
         rows = conn.execute(
             "SELECT gf.game_id, f.name FROM game_features gf "
             "JOIN features f ON f.feature_id = gf.feature_id WHERE f.category = 'genre'"
-        )
-        for game_id, name in rows:
-            genres[index[game_id]].add(name)
+        ).fetchall()
+    finally:
+        conn.close()
+    for game_id, name in rows:
+        genres[index[game_id]].add(name)
     return genres
 
 
@@ -241,18 +237,18 @@ def main(argv: list[str] | None = None) -> None:
     corpus = load_corpus(DB_PATH)
     matrices = {m: vectorize(corpus, m, params) for m in methods}
     save_vectors(corpus, matrices)
-    neighbors = {m: top_k_neighbors(v, PAIR_K) for m, v in matrices.items()}
+    neighbors = {m: neighbor_indices(v, PAIR_K) for m, v in matrices.items()}
     genres = load_genres(DB_PATH, corpus.game_ids)
-    uses_tfidf = any(m in methods for m in ("desc_tfidf", "hybrid_tfidf"))
+    uses_tfidf = any(m in TFIDF_METHODS for m in methods)
     report = build_report(
-        corpus,
-        methods,
-        neighbors,
-        read_pair_titles(),
-        genres,
-        random_genre_jaccard(genres, cfg["random_seed"], GENRE_K),
-        coverage(tfidf_relevance(corpus), corpus.present) if uses_tfidf else None,
-        notes,
+        corpus=corpus,
+        methods=methods,
+        neighbors=neighbors,
+        pair_titles=read_pair_titles(),
+        genres=genres,
+        random_baseline=random_genre_jaccard(genres, cfg["random_seed"], GENRE_K),
+        tfidf_coverage=coverage(tfidf_relevance(corpus), corpus.present) if uses_tfidf else None,
+        notes=notes,
     )
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(report, encoding="utf-8")

@@ -1,5 +1,6 @@
 """Behaviour of the tag vectorization methods (REL 2, MAINT 2)."""
 import dataclasses
+import sqlite3
 
 import numpy as np
 import pytest
@@ -13,6 +14,7 @@ from pipeline.vectorize import (
     load_corpus,
     vectorize,
 )
+from tests.conftest import order_from_votes
 
 CORE_METHODS = [m for m in METHODS if m not in EMBEDDING_METHODS]
 
@@ -29,18 +31,20 @@ PARAMS = {
 @pytest.fixture
 def corpus() -> TagCorpus:
     # tags: action, puzzle, rpg, shooter, space. "action" is on every game.
+    votes = np.array(
+        [
+            [100.0, 0, 0, 50, 10],
+            [80.0, 40, 0, 0, 5],
+            [300.0, 0, 90, 0, 0],
+            [20.0, 0, 0, 20, 0],
+        ]
+    )
     return TagCorpus(
         game_ids=np.array([1, 2, 3, 4]),
         titles=["A", "B", "C", "D"],
         tags=["action", "puzzle", "rpg", "shooter", "space"],
-        votes=np.array(
-            [
-                [100.0, 0, 0, 50, 10],
-                [80.0, 40, 0, 0, 5],
-                [300.0, 0, 90, 0, 0],
-                [20.0, 0, 0, 20, 0],
-            ]
-        ),
+        votes=votes,
+        order=order_from_votes(votes),
         descriptions=[
             "A frantic shooter set in deep space.",
             "Solve every puzzle on the station.",
@@ -112,7 +116,7 @@ def test_tag_every_game_has_is_downweighted_against_a_rare_tag(corpus, method):
     # Game 1 holds the ubiquitous "action" and the rare "space" at equal weight.
     votes = corpus.votes.copy()
     votes[0, 4] = votes[0, 0]
-    equal = dataclasses.replace(corpus, votes=votes)
+    equal = dataclasses.replace(corpus, votes=votes, order=order_from_votes(votes))
     before = vectorize(equal, plain, PARAMS)[0]
     after = vectorize(equal, method, PARAMS)[0]
     assert before[0] == pytest.approx(before[4])
@@ -133,7 +137,7 @@ def test_tag_named_in_the_description_outranks_one_that_is_not(corpus, method):
     # but is never mentioned. Equalise votes so only the description differs.
     votes = corpus.votes.copy()
     votes[0, [0, 3, 4]] = 10
-    equal = dataclasses.replace(corpus, votes=votes)
+    equal = dataclasses.replace(corpus, votes=votes, order=order_from_votes(votes))
     row = vectorize(equal, method, PARAMS)[0]
     assert row[3] > row[0]
     assert row[4] > row[0]
@@ -148,7 +152,7 @@ def test_desc_embed_prefers_the_tag_the_description_is_about(corpus, tmp_path):
     pytest.importorskip("sentence_transformers")
     votes = corpus.votes.copy()
     votes[1, [0, 1, 4]] = 10  # game 2: action, puzzle, space at equal votes
-    equal = dataclasses.replace(corpus, votes=votes)
+    equal = dataclasses.replace(corpus, votes=votes, order=order_from_votes(votes))
     params = {**PARAMS, "embedding_cache_dir": tmp_path}
     row = vectorize(equal, "desc_embed", params)[1]
     assert row[1] > row[0]  # "Solve every puzzle" -> puzzle over action
@@ -180,6 +184,10 @@ def test_description_methods_use_the_full_zero_to_one_scale(corpus):
     assert top.min() == pytest.approx(PARAMS["description_floor"])
 
 
+def test_configured_method_is_a_known_method():
+    assert load_config()["vectorization"]["method"] in METHODS
+
+
 @pytest.mark.skipif(not DB_PATH.exists(), reason="run `python -m pipeline.ingest` first")
 def test_real_database_smoke():
     corpus = load_corpus()
@@ -197,6 +205,6 @@ def test_real_database_smoke():
 
 def test_load_corpus_does_not_create_a_missing_database(tmp_path):
     missing = tmp_path / "nope.db"
-    with pytest.raises(Exception):
+    with pytest.raises(sqlite3.OperationalError):
         load_corpus(missing)
     assert not missing.exists()

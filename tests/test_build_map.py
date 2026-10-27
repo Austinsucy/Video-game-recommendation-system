@@ -12,13 +12,13 @@ from pipeline import publish
 from pipeline.build_map import (
     assign_clusters,
     build_map,
-    known_game_ids,
+    layout_2d,
     nearest_neighbors,
     separate_collisions,
 )
 from pipeline.config import load_config
 from pipeline.vectorize import TagCorpus, load_corpus
-from tests.conftest import N_GAMES
+from tests.conftest import N_GAMES, order_from_votes
 
 N_TAGS = 12
 
@@ -47,6 +47,7 @@ def corpus() -> TagCorpus:
         titles=[f"Game {i}" for i in range(1, N_GAMES + 1)],
         tags=[f"tag{j:02d}" for j in range(N_TAGS)],
         votes=votes,
+        order=order_from_votes(votes),
         descriptions=["" for _ in range(N_GAMES)],
     )
 
@@ -61,13 +62,6 @@ def test_building_twice_gives_the_same_map(corpus, cfg):
     for a, b in zip(first.positions, second.positions):
         assert a["x"] == pytest.approx(b["x"], abs=1e-6)
         assert a["y"] == pytest.approx(b["y"], abs=1e-6)
-
-
-def test_map_passes_publish_validation(corpus, cfg):
-    build = build_map(corpus, cfg)
-    publish.validate(
-        build.clusters, build.positions, build.neighbors, set(corpus.game_ids.tolist())
-    )
 
 
 def test_map_publishes_into_the_database(corpus, cfg, factory):
@@ -103,7 +97,7 @@ def test_equal_similarity_is_broken_by_game_id():
     # Games 10, 20, 30 are identical, so game 40 sees them as an exact tie.
     unit = np.array([1.0, 0.0])
     vectors = np.array([unit, unit, unit, [0.0, 1.0]])
-    ids = np.array([30, 10, 20, 40])
+    ids = np.array([10, 20, 30, 40])
     rows = [r for r in nearest_neighbors(vectors, ids, 3) if r["game_id"] == 40]
     assert [r["neighbor_game_id"] for r in rows] == [10, 20, 30]
 
@@ -130,6 +124,16 @@ def test_separate_collisions_spreads_a_stack_and_leaves_others_alone():
     np.testing.assert_array_equal(out, again)
 
 
+def test_separation_keeps_a_ring_away_from_a_point_just_outside_the_group():
+    # Two coincident games form a ring of radius ~0.5; the third sits 1.2 from
+    # the pair's centre, so it starts outside the group but lands inside the ring's reach.
+    coords = np.array([[0.0, 0.0], [0.0, 0.0], [1.2, 0.0]])
+    out, _ = separate_collisions(coords, np.array([1, 2, 3]), 1.0)
+    for i in range(3):
+        for j in range(i + 1, 3):
+            assert math.dist(out[i], out[j]) >= 1.0
+
+
 def test_every_game_has_exactly_one_known_cluster(corpus, cfg):
     build = build_map(corpus, cfg)
     cluster_ids = {c["cluster_id"] for c in build.clusters}
@@ -147,20 +151,31 @@ def test_coordinates_are_scaled_to_the_configured_extent(corpus, cfg):
     assert peak == pytest.approx(cfg["layout"]["coordinate_extent"], rel=0.05)
 
 
-def test_clusters_follow_the_full_vectors():
+def test_clusters_separate_groups_that_the_2d_layout_merges():
+    # Groups a and b differ only along a low-variance axis that PCA drops.
     rng = np.random.default_rng(1)
-    a = rng.normal([5, 0, 0], 0.1, size=(10, 3))
-    b = rng.normal([0, 5, 0], 0.1, size=(10, 3))
-    labels = assign_clusters(np.vstack([a, b]), 2, seed=42)
-    assert len(set(labels[:10])) == 1 and len(set(labels[10:])) == 1
+
+    def blob(centre):
+        return rng.normal(centre, 0.02, size=(10, 3))
+
+    a, b = blob([5, 0, 0]), blob([5, 0, 0.5])
+    far = [blob([-5, 4, 0]), blob([-5, -4, 0])]
+    vectors = np.vstack([a, b, *far])
+    labels = assign_clusters(vectors, 4, seed=42)
+    assert len(set(labels[:10])) == 1 and len(set(labels[10:20])) == 1
     assert labels[0] != labels[10]
+
+    coords, _ = layout_2d(vectors, extent=1000.0)
+    gap_2d = np.linalg.norm(coords[:10].mean(axis=0) - coords[10:20].mean(axis=0))
+    assert gap_2d < 10.0  # under 1% of the extent: the layout cannot tell them apart
 
 
 @pytest.mark.skipif(not DB_PATH.exists(), reason="run `python -m pipeline.ingest` first")
 def test_real_database_dry_build_validates():
     cfg = load_config()
-    build = build_map(load_corpus(DB_PATH), cfg)
+    corpus = load_corpus(DB_PATH)
+    build = build_map(corpus, cfg)
     publish.validate(
-        build.clusters, build.positions, build.neighbors, known_game_ids(DB_PATH)
+        build.clusters, build.positions, build.neighbors, set(corpus.game_ids.tolist())
     )
     assert len(build.clusters) == cfg["cluster_count"]

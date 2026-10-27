@@ -31,9 +31,9 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from backend.app.db import DB_PATH
-from pipeline.config import REPO_ROOT
+from pipeline.config import ARTIFACTS_DIR
 
-ARTIFACTS_DIR = REPO_ROOT / "data" / "artifacts"
+SIMILARITY_DECIMALS = 10  # ties are decided by game_id, so last-bit float noise must not matter
 
 Params = Mapping[str, Any]
 
@@ -44,8 +44,8 @@ class TagCorpus:
     titles: list[str]
     tags: list[str]             # (m,) sorted
     votes: np.ndarray           # (n, m) float, 0 where the tag is absent
+    order: np.ndarray           # (n, m) 1-based rank in Steam's own tag order, 0 if absent
     descriptions: list[str]
-    order: np.ndarray | None = None  # (n, m) 1-based rank in Steam's own tag order, 0 if absent
 
     @property
     def present(self) -> np.ndarray:
@@ -53,7 +53,8 @@ class TagCorpus:
 
 
 def load_corpus(db_path: Path | str = DB_PATH) -> TagCorpus:
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)  # never creates a file
+    uri = Path(db_path).resolve().as_uri() + "?mode=ro"  # never creates a file
+    conn = sqlite3.connect(uri, uri=True)
     try:
         rows = conn.execute(
             "SELECT game_id, title, description, raw_tags_json "
@@ -75,8 +76,8 @@ def load_corpus(db_path: Path | str = DB_PATH) -> TagCorpus:
         titles=[r[1] for r in rows],
         tags=tags,
         votes=votes,
-        descriptions=[r[2] or "" for r in rows],
         order=order,
+        descriptions=[r[2] or "" for r in rows],
     )
 
 
@@ -98,25 +99,14 @@ def votes_log(corpus: TagCorpus, params: Params) -> np.ndarray:
     return np.log1p(corpus.votes) / np.log1p(_row_max(corpus.votes))
 
 
-def _steam_ranks(corpus: TagCorpus) -> np.ndarray:
-    """(n, m) 1-based rank of each present tag in Steam's own order.
-
-    Steam lists a game's tags by votes, non-increasing, and the JSON key order
-    keeps that list, so it breaks vote ties the way Steam did. A corpus built
-    without it falls back to votes, then column order.
-    """
-    if corpus.order is not None:
-        return corpus.order
-    order = np.argsort(-corpus.votes, axis=1, kind="stable")
-    ranks = np.empty_like(order)
-    np.put_along_axis(ranks, order, np.arange(1, order.shape[1] + 1), axis=1)
-    return ranks
-
-
 def votes_rank(corpus: TagCorpus, params: Params) -> np.ndarray:
-    """(depth + 1 - rank) / depth: ignores vote magnitude entirely."""
+    """(depth + 1 - rank) / depth: ignores vote magnitude entirely.
+
+    Rank is the tag's position in Steam's own list, which breaks vote ties the
+    way Steam did.
+    """
     depth = params["rank_depth"]
-    weights = np.clip(depth + 1 - _steam_ranks(corpus), 0, None) / depth
+    weights = np.clip(depth + 1 - corpus.order, 0, None) / depth
     return np.where(corpus.present, weights, 0.0)
 
 
@@ -237,6 +227,7 @@ def _hybrid(description_method: Callable[[TagCorpus, Params], np.ndarray]):
 
 
 EMBEDDING_METHODS = frozenset({"desc_embed", "hybrid_embed"})
+TFIDF_METHODS = frozenset({"desc_tfidf", "hybrid_tfidf"})
 
 METHODS: dict[str, Callable[[TagCorpus, Params], np.ndarray]] = {
     "binary": binary,
@@ -263,3 +254,17 @@ def vectorize(corpus: TagCorpus, method: str, params: Params) -> np.ndarray:
     weights = METHODS[method](corpus, params)
     norms = np.linalg.norm(weights, axis=1, keepdims=True)
     return weights / np.where(norms > 0, norms, 1.0)
+
+
+def neighbor_indices(vectors: np.ndarray, k: int) -> np.ndarray:
+    """(n, k) row indices of each game's k most similar other games, best first.
+
+    Rows are in ascending game_id, so the stable sort breaks equal (rounded)
+    similarities by game_id.
+    """
+    n = len(vectors)
+    if not 0 < k < n:
+        raise ValueError(f"need 0 < k < {n} games, got k={k}")
+    sim = np.round(vectors @ vectors.T, SIMILARITY_DECIMALS)
+    np.fill_diagonal(sim, -np.inf)
+    return np.argsort(-sim, axis=1, kind="stable")[:, :k]

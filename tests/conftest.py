@@ -1,4 +1,5 @@
 """Shared fixtures: an in-memory database for schema and publish logic tests."""
+import numpy as np
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -62,3 +63,11 @@ def make_neighbors(ids, per_game=10):
                 }
             )
     return out
+
+
+def order_from_votes(votes: np.ndarray) -> np.ndarray:
+    """Steam-order ranks for a synthetic corpus: by votes, ties by column; 0 if absent."""
+    by_votes = np.argsort(-votes, axis=1, kind="stable")
+    ranks = np.empty(votes.shape)
+    np.put_along_axis(ranks, by_votes, np.arange(1, votes.shape[1] + 1), axis=1)
+    return np.where(votes > 0, ranks, 0.0)

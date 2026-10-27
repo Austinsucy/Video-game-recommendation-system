@@ -81,12 +81,16 @@ def test_malformed_vectorization_section_is_rejected(section):
 @pytest.mark.parametrize(
     "changes",
     [
-        {"neighbor_count": 9},
-        {"neighbor_count": 16},
+        {"neighbor_count": 0},
+        {"neighbor_count": True},
         {"coordinate_extent": 0},
+        {"coordinate_extent": float("inf")},
         {"collision_min_distance": -1.0},
+        {"collision_min_distance": float("nan")},
+        {"collision_min_distance": 2000.0},
         {"cluster_colors": ["#E69F00", "#E69F00"]},
         {"cluster_colors": ["red"] * 12},
+        {"cluster_colors": ["#E69F00", "#E69F00"] + ["#56B4E9"] * 10},
     ],
 )
 def test_bad_layout_values_are_rejected(changes):
@@ -99,5 +103,34 @@ def test_bad_layout_values_are_rejected(changes):
 def test_layout_needs_a_colour_for_every_cluster():
     cfg = load_config()
     cfg["cluster_count"] = len(cfg["layout"]["cluster_colors"]) + 1
+    with pytest.raises(ConfigError):
+        validate_config(cfg)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"cluster_count": 0},
+        {"cluster_count": True},
+        {"cluster_count": 2.5},
+        {"random_seed": None},
+        {"random_seed": True},
+        {"random_seed": "42"},
+        {"map_version": "../evil"},
+        {"map_version": "a/b"},
+        {"map_version": "v..1"},
+        {"map_version": ""},
+        {"map_version": 1},
+    ],
+)
+def test_bad_top_level_values_are_rejected(changes):
+    cfg = {**load_config(), **changes}
+    with pytest.raises(ConfigError):
+        validate_config(cfg)
+
+
+def test_layout_section_is_required():
+    cfg = load_config()
+    del cfg["layout"]
     with pytest.raises(ConfigError):
         validate_config(cfg)

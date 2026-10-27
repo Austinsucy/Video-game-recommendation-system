@@ -99,6 +99,10 @@ fields:
     - "average_playtime_forever"
 
 # -----------------------------------------------------------------------------
+# NOTE: the current tag-vector pipeline (vectorization -> build_map) does not
+# read category_weights or vocabulary yet. Whether to fold the curated
+# categories back in is an open team decision (GM 1).
+#
 # Category weights - Austin/Kayne tune these.
 # `tag` is 0.0 on purpose: the scrum doc says display tags must not become an
 # extra weighted category or double-count a concept already captured elsewhere.
@@ -132,7 +136,7 @@ vectorization:
 # -----------------------------------------------------------------------------
 layout:
   neighbor_count: 15           # neighbours stored per game; the scrum doc allows 10-15
-  coordinate_extent: 1000.0    # PCA output is scaled so the largest |x| or |y| equals this
+  coordinate_extent: 1000.0    # PCA output is scaled so the largest |x| or |y| equals this (collision separation can push a point slightly past it)
   collision_min_distance: 1.0  # games closer than this (e.g. identical tag vectors) are spread apart
   # Colour-blind-friendly (ACC 3): Okabe-Ito, then four Paul Tol "muted" colours.
   # Twelve categorical colours cannot all be told apart at a glance, so the legend
