@@ -44,3 +44,35 @@ def test_selection_mode_is_validated():
     cfg["selection"]["mode"] = "whatever"
     with pytest.raises(ConfigError):
         validate_config(cfg)
+
+
+def _with_vectorization(**changes):
+    cfg = load_config()
+    cfg["vectorization"] = {**cfg["vectorization"], **changes}
+    return cfg
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"hybrid_alpha": 1.5},
+        {"description_floor": -0.1},
+        {"description_floor": "high"},
+        {"rank_depth": 5},
+        {"rank_depth": 20.5},
+        {"embedding_model": ""},
+        {"embedding_revision": ""},
+        {"embedding_tag_template": "a video game"},
+    ],
+)
+def test_bad_vectorization_values_are_rejected(changes):
+    with pytest.raises(ConfigError):
+        validate_config(_with_vectorization(**changes))
+
+
+@pytest.mark.parametrize("section", [None, [], "votes_log_idf", {}])
+def test_malformed_vectorization_section_is_rejected(section):
+    cfg = load_config()
+    cfg["vectorization"] = section
+    with pytest.raises(ConfigError):
+        validate_config(cfg)

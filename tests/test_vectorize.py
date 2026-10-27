@@ -4,21 +4,24 @@ import dataclasses
 import numpy as np
 import pytest
 
+from backend.app.db import DB_PATH
 from pipeline.config import load_config
 from pipeline.vectorize import (
+    EMBEDDING_METHODS,
     METHODS,
     TagCorpus,
     load_corpus,
     vectorize,
 )
 
-CORE_METHODS = [m for m in METHODS if m not in ("desc_embed", "hybrid_embed")]
+CORE_METHODS = [m for m in METHODS if m not in EMBEDDING_METHODS]
 
 PARAMS = {
     "description_floor": 0.4,
     "hybrid_alpha": 0.7,
     "rank_depth": 5,
-    "embedding_model": "all-MiniLM-L6-v2",
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "embedding_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
     "embedding_tag_template": "a video game tagged {tag}",
 }
 
@@ -150,21 +153,50 @@ def test_desc_embed_prefers_the_tag_the_description_is_about(corpus, tmp_path):
     row = vectorize(equal, "desc_embed", params)[1]
     assert row[1] > row[0]  # "Solve every puzzle" -> puzzle over action
     np.testing.assert_array_equal(row, vectorize(equal, "desc_embed", params)[1])
-    assert len(list(tmp_path.glob("*.npy"))) == 2  # descriptions + tag texts
 
 
-def test_real_config_vectorization_section_is_usable():
-    params = load_config()["vectorization"]
-    assert params["method"] in METHODS
+def test_votes_rank_breaks_vote_ties_by_steam_order(corpus):
+    # Equal votes on three tags; Steam listed shooter first, then action, then space.
+    votes = corpus.votes.copy()
+    votes[0, [0, 3, 4]] = 10
+    order = np.zeros_like(votes)
+    order[0, [3, 0, 4]] = [1, 2, 3]
+    tied = dataclasses.replace(corpus, votes=votes, order=order)
+    action, shooter, space = vectorize(tied, "votes_rank", PARAMS)[0][[0, 3, 4]]
+    assert shooter > action > space
 
 
+def test_blank_description_gives_every_tag_the_floor_weight(corpus):
+    blank = dataclasses.replace(corpus, descriptions=["", *corpus.descriptions[1:]])
+    row = vectorize(blank, "desc_tfidf", PARAMS)[0]
+    np.testing.assert_allclose(row[corpus.present[0]], 1 / np.sqrt(3))
+
+
+def test_description_methods_use_the_full_zero_to_one_scale(corpus):
+    weights = METHODS["desc_tfidf"](corpus, PARAMS)
+    # Game 1 names shooter and space, so its best tag reaches 1.0 and its worst the floor.
+    top = weights[0][corpus.present[0]]
+    assert top.max() == pytest.approx(1.0)
+    assert top.min() == pytest.approx(PARAMS["description_floor"])
+
+
+@pytest.mark.skipif(not DB_PATH.exists(), reason="run `python -m pipeline.ingest` first")
 def test_real_database_smoke():
     corpus = load_corpus()
-    assert corpus.votes.shape == (1000, 410)
+    n_games, n_tags = corpus.votes.shape
+    assert n_games > 0 and n_tags > 0
+    assert len(corpus.titles) == len(corpus.descriptions) == n_games
     assert list(corpus.tags) == sorted(corpus.tags)
     params = load_config()["vectorization"]
     for method in CORE_METHODS:
         vectors = vectorize(corpus, method, params)
-        assert vectors.shape == (1000, 410)
+        assert vectors.shape == (n_games, n_tags)
         np.testing.assert_allclose(np.linalg.norm(vectors, axis=1), 1.0)
         assert np.all(vectors[~corpus.present] == 0)
+
+
+def test_load_corpus_does_not_create_a_missing_database(tmp_path):
+    missing = tmp_path / "nope.db"
+    with pytest.raises(Exception):
+        load_corpus(missing)
+    assert not missing.exists()

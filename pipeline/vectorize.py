@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -28,8 +30,9 @@ from typing import Any, Callable, Mapping
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DB_PATH = REPO_ROOT / "data" / "games.db"
+from backend.app.db import DB_PATH
+from pipeline.config import REPO_ROOT
+
 ARTIFACTS_DIR = REPO_ROOT / "data" / "artifacts"
 
 Params = Mapping[str, Any]
@@ -42,31 +45,38 @@ class TagCorpus:
     tags: list[str]             # (m,) sorted
     votes: np.ndarray           # (n, m) float, 0 where the tag is absent
     descriptions: list[str]
+    order: np.ndarray | None = None  # (n, m) 1-based rank in Steam's own tag order, 0 if absent
 
     @property
     def present(self) -> np.ndarray:
         return self.votes > 0
 
 
-def load_corpus(db_path: Path | str = DEFAULT_DB_PATH) -> TagCorpus:
-    with sqlite3.connect(db_path) as conn:
+def load_corpus(db_path: Path | str = DB_PATH) -> TagCorpus:
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)  # never creates a file
+    try:
         rows = conn.execute(
             "SELECT game_id, title, description, raw_tags_json "
             "FROM games ORDER BY game_id"
         ).fetchall()
+    finally:
+        conn.close()
     raw = [json.loads(r[3]) if r[3] else {} for r in rows]
     tags = sorted({t for tag_votes in raw for t in tag_votes})
     column = {t: j for j, t in enumerate(tags)}
     votes = np.zeros((len(rows), len(tags)))
+    order = np.zeros((len(rows), len(tags)))
     for i, tag_votes in enumerate(raw):
-        for tag, count in tag_votes.items():
+        for position, (tag, count) in enumerate(tag_votes.items(), start=1):
             votes[i, column[tag]] = count
+            order[i, column[tag]] = position
     return TagCorpus(
         game_ids=np.array([r[0] for r in rows]),
         titles=[r[1] for r in rows],
         tags=tags,
         votes=votes,
         descriptions=[r[2] or "" for r in rows],
+        order=order,
     )
 
 
@@ -88,13 +98,25 @@ def votes_log(corpus: TagCorpus, params: Params) -> np.ndarray:
     return np.log1p(corpus.votes) / np.log1p(_row_max(corpus.votes))
 
 
-def votes_rank(corpus: TagCorpus, params: Params) -> np.ndarray:
-    """(depth + 1 - rank) / depth: ignores vote magnitude entirely."""
-    depth = params["rank_depth"]
+def _steam_ranks(corpus: TagCorpus) -> np.ndarray:
+    """(n, m) 1-based rank of each present tag in Steam's own order.
+
+    Steam lists a game's tags by votes, non-increasing, and the JSON key order
+    keeps that list, so it breaks vote ties the way Steam did. A corpus built
+    without it falls back to votes, then column order.
+    """
+    if corpus.order is not None:
+        return corpus.order
     order = np.argsort(-corpus.votes, axis=1, kind="stable")
     ranks = np.empty_like(order)
     np.put_along_axis(ranks, order, np.arange(1, order.shape[1] + 1), axis=1)
-    weights = np.clip(depth + 1 - ranks, 0, None) / depth
+    return ranks
+
+
+def votes_rank(corpus: TagCorpus, params: Params) -> np.ndarray:
+    """(depth + 1 - rank) / depth: ignores vote magnitude entirely."""
+    depth = params["rank_depth"]
+    weights = np.clip(depth + 1 - _steam_ranks(corpus), 0, None) / depth
     return np.where(corpus.present, weights, 0.0)
 
 
@@ -109,7 +131,6 @@ def _with_idf(base: Callable[[TagCorpus, Params], np.ndarray]):
     def weighted(corpus: TagCorpus, params: Params) -> np.ndarray:
         return base(corpus, params) * tag_idf(corpus.present)
 
-    weighted.__name__ = f"{base.__name__}_idf"
     return weighted
 
 
@@ -135,10 +156,16 @@ def embedding_relevance(corpus: TagCorpus, params: Params) -> np.ndarray:
 
 
 def _embed(texts: list[str], params: Params) -> np.ndarray:
+    """Normalised sentence embeddings, cached by model, revision and text.
+
+    `embedding_cache_dir` is an optional override that tests use to keep the
+    cache out of data/artifacts.
+    """
     model_name = params["embedding_model"]
+    revision = params["embedding_revision"]
     cache_dir = Path(params.get("embedding_cache_dir", ARTIFACTS_DIR / "embeddings"))
     digest = hashlib.sha256(
-        json.dumps([model_name, texts], ensure_ascii=False).encode()
+        json.dumps([model_name, revision, texts], ensure_ascii=False).encode()
     ).hexdigest()[:16]
     cache_file = cache_dir / f"{model_name.replace('/', '_')}-{digest}.npy"
     if cache_file.exists():
@@ -146,10 +173,15 @@ def _embed(texts: list[str], params: Params) -> np.ndarray:
 
     from sentence_transformers import SentenceTransformer  # optional dependency
 
-    model = SentenceTransformer(model_name, device="cpu")  # REL 2: no GPU nondeterminism
+    model = SentenceTransformer(  # REL 2: pinned revision, no GPU nondeterminism
+        model_name, revision=revision, device="cpu"
+    )
     vectors = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    np.save(cache_file, vectors)
+    fd, tmp_name = tempfile.mkstemp(dir=cache_dir, suffix=".tmp")
+    with os.fdopen(fd, "wb") as fh:
+        np.save(fh, vectors)
+    os.replace(tmp_name, cache_file)  # atomic: a crash never leaves a torn cache
     return vectors
 
 
@@ -173,15 +205,25 @@ def _description_weight(
     return np.where(present, floor + (1 - floor) * relevance, 0.0)
 
 
+def _blank_descriptions(corpus: TagCorpus) -> np.ndarray:
+    return np.array([not d.strip() for d in corpus.descriptions])[:, None]
+
+
+def _from_relevance(
+    corpus: TagCorpus, relevance: np.ndarray, params: Params
+) -> np.ndarray:
+    """Rescale within each game; a blank description says nothing (relevance 0)."""
+    scaled = _rescale_within_game(relevance, corpus.present)
+    scaled = np.where(_blank_descriptions(corpus), 0.0, scaled)
+    return _description_weight(scaled, corpus.present, params)
+
+
 def desc_tfidf(corpus: TagCorpus, params: Params) -> np.ndarray:
-    return _description_weight(tfidf_relevance(corpus), corpus.present, params)
+    return _from_relevance(corpus, tfidf_relevance(corpus), params)
 
 
 def desc_embed(corpus: TagCorpus, params: Params) -> np.ndarray:
-    relevance = _rescale_within_game(
-        embedding_relevance(corpus, params), corpus.present
-    )
-    return _description_weight(relevance, corpus.present, params)
+    return _from_relevance(corpus, embedding_relevance(corpus, params), params)
 
 
 def _hybrid(description_method: Callable[[TagCorpus, Params], np.ndarray]):
@@ -193,6 +235,8 @@ def _hybrid(description_method: Callable[[TagCorpus, Params], np.ndarray]):
 
     return blended
 
+
+EMBEDDING_METHODS = frozenset({"desc_embed", "hybrid_embed"})
 
 METHODS: dict[str, Callable[[TagCorpus, Params], np.ndarray]] = {
     "binary": binary,

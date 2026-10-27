@@ -1,5 +1,7 @@
 # DRAFT: known-similar game pairs for scoring vectorization methods (DATA 2).
 # Pending approval from Kayne and Austin. Every title exists in data/games.db.
+# These pairs are tied to the popular_recent selection; under another selection
+# mode some titles will be absent and the comparison report lists them as such.
 # Each entry is [title_a, title_b]; titles must match games.title exactly.
 - ["Battlefield™ V", "Battlefield™ 1"]
 - ["Battlefield 4™", "Battlefield 3™"]

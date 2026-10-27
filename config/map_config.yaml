@@ -123,7 +123,8 @@ vectorization:
   description_floor: 0.4       # weight of a present tag the description never mentions
   hybrid_alpha: 0.7            # hybrid_* = alpha * votes_log + (1 - alpha) * description
   rank_depth: 20               # Steam keeps each game's top 20 tags
-  embedding_model: "all-MiniLM-L6-v2"
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  embedding_revision: "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"   # pinned Hugging Face commit (REL 2)
   embedding_tag_template: "a video game tagged {tag}"
 
 # -----------------------------------------------------------------------------

@@ -8,7 +8,6 @@ from pathlib import Path
 import yaml
 
 from backend.app.models import VALID_CATEGORIES
-from pipeline.vectorize import METHODS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / "config" / "map_config.yaml"
@@ -83,14 +82,34 @@ def validate_config(cfg: dict) -> None:
     if mode not in ("popular_recent", "popular_pre2019"):
         raise ConfigError(f"selection.mode must be popular_recent or popular_pre2019, got {mode!r}")
 
-    vec = cfg["vectorization"]
-    if vec.get("method") not in METHODS:
-        raise ConfigError(
-            f"vectorization.method must be one of {sorted(METHODS)}, got {vec.get('method')!r}"
-        )
+    _validate_vectorization(cfg["vectorization"])
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _validate_vectorization(vec) -> None:
+    """Shape and range checks only. `vectorize()` owns the method-name check."""
+    if not isinstance(vec, dict):
+        raise ConfigError("vectorization must be a mapping")
+    if not isinstance(vec.get("method"), str):
+        raise ConfigError("vectorization.method must be a string")
     for key in ("description_floor", "hybrid_alpha"):
-        if not 0 <= vec.get(key, -1) <= 1:
-            raise ConfigError(f"vectorization.{key} must be between 0 and 1")
+        value = vec.get(key)
+        if not (_is_number(value) and 0 <= value <= 1):
+            raise ConfigError(f"vectorization.{key} must be a number between 0 and 1")
+    depth = vec.get("rank_depth")
+    # Steam keeps each game's top 20 tags; a smaller depth zeroes out present tags.
+    if not (isinstance(depth, int) and not isinstance(depth, bool) and depth >= 20):
+        raise ConfigError("vectorization.rank_depth must be an integer >= 20")
+    for key in ("embedding_model", "embedding_revision"):
+        value = vec.get(key)
+        if not (isinstance(value, str) and value.strip()):
+            raise ConfigError(f"vectorization.{key} must be a non-empty string")
+    template = vec.get("embedding_tag_template")
+    if not (isinstance(template, str) and "{tag}" in template):
+        raise ConfigError("vectorization.embedding_tag_template must contain {tag}")
 
 
 def alias_lookup(cfg: dict) -> dict[str, tuple[str, str]]:
