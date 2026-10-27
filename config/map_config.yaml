@@ -115,6 +115,18 @@ category_weights:
   tag: 0.0
 
 # -----------------------------------------------------------------------------
+# Tag vectorization (pipeline/vectorize.py). Compare the methods with
+# `python -m pipeline.compare_vectors`, then set `method` to the winner.
+# -----------------------------------------------------------------------------
+vectorization:
+  method: "votes_log_idf"      # PLACEHOLDER until Kayne/Austin pick from the comparison
+  description_floor: 0.4       # weight of a present tag the description never mentions
+  hybrid_alpha: 0.7            # hybrid_* = alpha * votes_log + (1 - alpha) * description
+  rank_depth: 20               # Steam keeps each game's top 20 tags
+  embedding_model: "all-MiniLM-L6-v2"
+  embedding_tag_template: "a video game tagged {tag}"
+
+# -----------------------------------------------------------------------------
 # Approved vocabulary -> becomes rows in the `features` table.
 # -----------------------------------------------------------------------------
 vocabulary:

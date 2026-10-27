@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 
 from backend.app.models import VALID_CATEGORIES
+from pipeline.vectorize import METHODS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / "config" / "map_config.yaml"
@@ -51,7 +52,7 @@ def load_config(path: Path | str | None = None) -> dict:
 def validate_config(cfg: dict) -> None:
     """Fail loudly on a malformed config rather than importing bad data."""
     for key in ("map_version", "dataset", "selection", "fields",
-                "category_weights", "vocabulary", "aliases"):
+                "category_weights", "vocabulary", "aliases", "vectorization"):
         if key not in cfg:
             raise ConfigError(f"config is missing required section: {key}")
 
@@ -81,6 +82,15 @@ def validate_config(cfg: dict) -> None:
     mode = cfg["selection"].get("mode")
     if mode not in ("popular_recent", "popular_pre2019"):
         raise ConfigError(f"selection.mode must be popular_recent or popular_pre2019, got {mode!r}")
+
+    vec = cfg["vectorization"]
+    if vec.get("method") not in METHODS:
+        raise ConfigError(
+            f"vectorization.method must be one of {sorted(METHODS)}, got {vec.get('method')!r}"
+        )
+    for key in ("description_floor", "hybrid_alpha"):
+        if not 0 <= vec.get(key, -1) <= 1:
+            raise ConfigError(f"vectorization.{key} must be between 0 and 1")
 
 
 def alias_lookup(cfg: dict) -> dict[str, tuple[str, str]]:
