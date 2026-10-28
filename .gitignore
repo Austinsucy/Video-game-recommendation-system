@@ -1,6 +1,8 @@
 # Secrets (SEC 2) - this file must exist before any API key does
 .env
 .env.local
+.env.*
+!.env.example
 
 # Python
 .venv/
