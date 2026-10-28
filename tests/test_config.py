@@ -81,6 +81,10 @@ def test_malformed_vectorization_section_is_rejected(section):
 @pytest.mark.parametrize(
     "changes",
     [
+        {"method": "umap"},
+        {"method": None},
+        {"tsne_perplexity": 0},
+        {"tsne_perplexity": "30"},
         {"neighbor_count": 0},
         {"neighbor_count": True},
         {"coordinate_extent": 0},

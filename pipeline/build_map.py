@@ -28,6 +28,7 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 
 from backend.app.db import DB_PATH
 from pipeline import publish
@@ -54,7 +55,8 @@ class MapBuild:
     clusters: list[dict]
     positions: list[dict]
     neighbors: list[dict]
-    explained_variance_ratio: tuple[float, float]
+    layout_method: str
+    neighbors_kept_on_map: float
     cluster_sizes: tuple[int, ...]
     collisions_moved: int
 
@@ -75,19 +77,49 @@ def nearest_neighbors(vectors: np.ndarray, game_ids: np.ndarray, k: int) -> list
     ]
 
 
-def layout_2d(vectors: np.ndarray, extent: float) -> tuple[np.ndarray, tuple[float, float]]:
-    """(n, 2) PCA coordinates scaled so the largest |coordinate| is `extent`.
+def _scale_to_extent(coords: np.ndarray, extent: float) -> np.ndarray:
+    """Centre on the origin and scale so the largest |coordinate| is `extent`.
 
-    Also returns the variance ratio each of the two axes explains. The full
-    SVD solver is deterministic, so no seed is involved. Collision separation
-    afterwards can push a point slightly past `extent`.
+    Collision separation afterwards can push a point slightly past `extent`.
     """
-    pca = PCA(n_components=2, svd_solver="full")
-    coords = pca.fit_transform(vectors)
+    coords = coords - coords.mean(axis=0)
     peak = np.abs(coords).max()
-    if peak > 0:
-        coords = coords * (extent / peak)
-    return coords, tuple(float(r) for r in pca.explained_variance_ratio_)
+    return coords * (extent / peak) if peak > 0 else coords
+
+
+def pca_layout(vectors: np.ndarray, layout: dict, seed: int) -> np.ndarray:
+    """The two directions of largest spread. The full SVD solver needs no seed."""
+    return PCA(n_components=2, svd_solver="full").fit_transform(vectors)
+
+
+def tsne_layout(vectors: np.ndarray, layout: dict, seed: int) -> np.ndarray:
+    """Keeps each game near its cosine neighbours; distances between islands mean little.
+
+    sklearn requires perplexity < n games, which only bites on tiny test corpora.
+    """
+    perplexity = min(layout["tsne_perplexity"], len(vectors) - 1)
+    return TSNE(
+        n_components=2, metric="cosine", init="pca", perplexity=perplexity, random_state=seed
+    ).fit_transform(vectors)
+
+
+LAYOUTS = {"pca": pca_layout, "tsne": tsne_layout}
+
+
+def layout_2d(vectors: np.ndarray, layout: dict, seed: int) -> np.ndarray:
+    """(n, 2) coordinates from the configured `layout.method`, scaled to `coordinate_extent`."""
+    coords = LAYOUTS[layout["method"]](vectors, layout, seed)
+    return _scale_to_extent(coords, layout["coordinate_extent"])
+
+
+def neighbors_kept_on_map(coords: np.ndarray, vectors: np.ndarray, k: int) -> float:
+    """Mean share of each game's k cosine neighbours that are among its k closest map points."""
+    diff = coords[:, None, :] - coords[None, :, :]
+    dist = np.hypot(diff[..., 0], diff[..., 1])
+    np.fill_diagonal(dist, np.inf)
+    on_map = np.argsort(dist, axis=1, kind="stable")[:, :k]
+    true = neighbor_indices(vectors, k)
+    return float(np.mean([len(set(a) & set(b)) / k for a, b in zip(on_map, true)]))
 
 
 def _min_pairwise_distance(coords: np.ndarray) -> float:
@@ -171,7 +203,7 @@ def build_map(corpus: TagCorpus, cfg: dict) -> MapBuild:
     seed, n_clusters = cfg["random_seed"], cfg["cluster_count"]
     vectors = vectorize(corpus, vec_cfg["method"], vectorization_params(cfg))
 
-    coords, variance = layout_2d(vectors, layout["coordinate_extent"])
+    coords = layout_2d(vectors, layout, seed)
     coords, moved = separate_collisions(
         coords, corpus.game_ids, layout["collision_min_distance"]
     )
@@ -189,7 +221,8 @@ def build_map(corpus: TagCorpus, cfg: dict) -> MapBuild:
         clusters=cluster_rows(n_clusters, layout["cluster_colors"]),
         positions=positions,
         neighbors=nearest_neighbors(vectors, corpus.game_ids, layout["neighbor_count"]),
-        explained_variance_ratio=variance,
+        layout_method=layout["method"],
+        neighbors_kept_on_map=neighbors_kept_on_map(coords, vectors, layout["neighbor_count"]),
         cluster_sizes=tuple(int(c) for c in np.bincount(labels, minlength=n_clusters)),
         collisions_moved=moved,
     )
@@ -218,14 +251,13 @@ def map_version_exists(db_path: Path, version: str) -> bool:
 
 
 def summary(build: MapBuild, version: str, method: str) -> str:
-    x_var, y_var = build.explained_variance_ratio
     return "\n".join(
         [
             f"map version: {version} (method {method})",
             f"games: {len(build.positions)}, neighbours/game: "
             f"{len(build.neighbors) // len(build.positions)}",
-            f"PCA explained variance: PC1 {x_var:.3f}, PC2 {y_var:.3f}, "
-            f"total {x_var + y_var:.3f}",
+            f"layout: {build.layout_method}, neighbours kept on map: "
+            f"{build.neighbors_kept_on_map:.0%}",
             f"cluster sizes: {list(build.cluster_sizes)}",
             f"collisions moved: {build.collisions_moved}",
         ]

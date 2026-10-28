@@ -136,7 +136,9 @@ vectorization:
 # -----------------------------------------------------------------------------
 layout:
   neighbor_count: 15           # neighbours stored per game; the scrum doc allows 10-15
-  coordinate_extent: 1000.0    # PCA output is scaled so the largest |x| or |y| equals this (collision separation can push a point slightly past it)
+  method: "tsne"               # tsne keeps ~4x more true neighbours close on the map than pca; GM 1 originally said PCA
+  tsne_perplexity: 30          # roughly how many neighbours t-SNE preserves per game
+  coordinate_extent: 1000.0    # layout output is scaled so the largest |x| or |y| equals this (collision separation can push a point slightly past it)
   collision_min_distance: 1.0  # games closer than this (e.g. identical tag vectors) are spread apart
   # Colour-blind-friendly (ACC 3): Okabe-Ito, then four Paul Tol "muted" colours.
   # Twelve categorical colours cannot all be told apart at a glance, so the legend

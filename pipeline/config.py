@@ -14,6 +14,7 @@ from backend.app.models import VALID_CATEGORIES
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = REPO_ROOT / "data" / "artifacts"
 _HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
+LAYOUT_METHODS = ("pca", "tsne")  # pipeline/build_map.py LAYOUTS
 VERSION_ID = re.compile(r"[A-Za-z0-9._-]+")
 CONFIG_PATH = REPO_ROOT / "config" / "map_config.yaml"
 
@@ -173,6 +174,11 @@ def _validate_layout(layout, cluster_count: int) -> None:
     for key, value in (("coordinate_extent", extent), ("collision_min_distance", min_distance)):
         if not (_is_number(value) and math.isfinite(value) and value > 0):
             raise ConfigError(f"layout.{key} must be a finite positive number")
+    if layout.get("method") not in LAYOUT_METHODS:
+        raise ConfigError(f"layout.method must be one of {sorted(LAYOUT_METHODS)}")
+    perplexity = layout.get("tsne_perplexity")
+    if not (_is_number(perplexity) and math.isfinite(perplexity) and perplexity > 0):
+        raise ConfigError("layout.tsne_perplexity must be a finite positive number")
     if min_distance >= extent:
         raise ConfigError("layout.collision_min_distance must be less than coordinate_extent")
     colors = layout.get("cluster_colors")

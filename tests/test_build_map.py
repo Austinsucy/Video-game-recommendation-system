@@ -13,6 +13,7 @@ from pipeline.build_map import (
     assign_clusters,
     build_map,
     layout_2d,
+    neighbors_kept_on_map,
     nearest_neighbors,
     separate_collisions,
 )
@@ -166,7 +167,7 @@ def test_clusters_separate_groups_that_the_2d_layout_merges():
     assert len(set(labels[:10])) == 1 and len(set(labels[10:20])) == 1
     assert labels[0] != labels[10]
 
-    coords, _ = layout_2d(vectors, extent=1000.0)
+    coords = layout_2d(vectors, {"method": "pca", "coordinate_extent": 1000.0}, seed=42)
     gap_2d = np.linalg.norm(coords[:10].mean(axis=0) - coords[10:20].mean(axis=0))
     assert gap_2d < 10.0  # under 1% of the extent: the layout cannot tell them apart
 
@@ -180,3 +181,27 @@ def test_real_database_dry_build_validates():
         build.clusters, build.positions, build.neighbors, set(corpus.game_ids.tolist())
     )
     assert len(build.clusters) == cfg["cluster_count"]
+
+
+def test_tsne_keeps_more_true_neighbours_close_than_pca():
+    rng = np.random.default_rng(0)
+    centres = rng.normal(size=(8, 40))
+    vectors = np.vstack([rng.normal(c, 0.3, size=(25, 40)) for c in centres])
+    vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+    kept = {
+        method: neighbors_kept_on_map(
+            layout_2d(vectors, {"method": method, "coordinate_extent": 1000.0, "tsne_perplexity": 30}, seed=42),
+            vectors,
+            10,
+        )
+        for method in ("pca", "tsne")
+    }
+    assert kept["tsne"] > kept["pca"]
+
+
+def test_tsne_layout_is_reproducible():
+    rng = np.random.default_rng(1)
+    vectors = rng.normal(size=(60, 12))
+    vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+    layout = {"method": "tsne", "coordinate_extent": 1000.0, "tsne_perplexity": 15}
+    np.testing.assert_array_equal(layout_2d(vectors, layout, seed=42), layout_2d(vectors, layout, seed=42))
