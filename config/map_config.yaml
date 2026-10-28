@@ -99,6 +99,10 @@ fields:
     - "average_playtime_forever"
 
 # -----------------------------------------------------------------------------
+# NOTE: only the `category_weighted` vectorization method reads these weights.
+# The other methods work on raw tag votes. Which method publishes is an open
+# team decision (GM 1).
+#
 # Category weights - Austin/Kayne tune these.
 # `tag` is 0.0 on purpose: the scrum doc says display tags must not become an
 # extra weighted category or double-count a concept already captured elsewhere.
@@ -113,6 +117,45 @@ category_weights:
   perspective: 0.5
   platform: 0.2
   tag: 0.0
+
+# -----------------------------------------------------------------------------
+# Tag vectorization (pipeline/vectorize.py). Compare the methods with
+# `python -m pipeline.compare_vectors`, then set `method` to the winner.
+# -----------------------------------------------------------------------------
+vectorization:
+  method: "votes_log_idf"      # PLACEHOLDER until Kayne/Austin pick from the comparison
+  description_floor: 0.4       # weight of a present tag the description never mentions
+  hybrid_alpha: 0.7            # hybrid_* = alpha * votes_log + (1 - alpha) * description
+  rank_depth: 20               # Steam keeps each game's top 20 tags
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  embedding_revision: "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"   # pinned Hugging Face commit (REL 2)
+  embedding_tag_template: "a video game tagged {tag}"
+
+# -----------------------------------------------------------------------------
+# Map layout (pipeline/build_map.py). cluster_count and random_seed are above.
+# -----------------------------------------------------------------------------
+layout:
+  neighbor_count: 15           # neighbours stored per game; the scrum doc allows 10-15
+  method: "tsne"               # tsne keeps ~4x more true neighbours close on the map than pca; GM 1 originally said PCA
+  tsne_perplexity: 30          # roughly how many neighbours t-SNE preserves per game
+  coordinate_extent: 1000.0    # layout output is scaled so the largest |x| or |y| equals this (collision separation can push a point slightly past it)
+  collision_min_distance: 1.0  # games closer than this (e.g. identical tag vectors) are spread apart
+  # Colour-blind-friendly (ACC 3): Okabe-Ito, then four Paul Tol "muted" colours.
+  # Twelve categorical colours cannot all be told apart at a glance, so the legend
+  # must always label clusters by name, never by colour alone.
+  cluster_colors:
+    - "#E69F00"
+    - "#56B4E9"
+    - "#009E73"
+    - "#F0E442"
+    - "#0072B2"
+    - "#D55E00"
+    - "#CC79A7"
+    - "#999999"
+    - "#882255"
+    - "#44AA99"
+    - "#DDCC77"
+    - "#332288"
 
 # -----------------------------------------------------------------------------
 # Approved vocabulary -> becomes rows in the `features` table.

@@ -1,10 +1,12 @@
 """Shared fixtures: an in-memory database for schema and publish logic tests."""
+import numpy as np
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from backend.app.models import Base, Game
+from pipeline.vectorize import CuratedFeatures
 
 N_GAMES = 20
 
@@ -62,3 +64,16 @@ def make_neighbors(ids, per_game=10):
                 }
             )
     return out
+
+
+def no_features(n_games: int) -> CuratedFeatures:
+    """Curated features for a tag-only fixture: none."""
+    return CuratedFeatures(np.zeros((n_games, 0)), (), ())
+
+
+def order_from_votes(votes: np.ndarray) -> np.ndarray:
+    """Steam-order ranks for a synthetic corpus: by votes, ties by column; 0 if absent."""
+    by_votes = np.argsort(-votes, axis=1, kind="stable")
+    ranks = np.empty(votes.shape)
+    np.put_along_axis(ranks, by_votes, np.arange(1, votes.shape[1] + 1), axis=1)
+    return np.where(votes > 0, ranks, 0.0)
