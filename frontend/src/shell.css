@@ -1,0 +1,84 @@
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-header,
+.toolbar {
+  padding: 20px;
+  border-bottom: 1px solid #374151;
+}
+
+.site-header h1 {
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.site-header p {
+  margin-top: 8px;
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+input,
+select,
+button {
+  padding: 10px;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 20px;
+  padding: 20px;
+  flex: 1;
+}
+
+.map-placeholder {
+  min-height: 500px;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  border: 4px dashed #475569;
+  border-radius: 12px;
+}
+
+.map-placeholder p {
+  margin-top: 8px;
+}
+
+.information-panel {
+  padding: 20px;
+  background: #1f2937;
+  color: #e5e7eb;
+  border-radius: 12px;
+}
+
+.information-panel h2 {
+  font-size: 22px;
+  margin-bottom: 12px;
+}
+
+.information-panel p {
+  margin-bottom: 12px;
+}
+
+.cover-placeholder {
+  height: 150px;
+  display: grid;
+  place-items: center;
+  margin: 16px 0;
+  background: #374151;
+  border-radius: 8px;
+}
+
+@media (max-width: 800px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+}
