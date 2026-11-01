@@ -94,6 +94,9 @@ def validate_config(cfg: dict) -> None:
     cluster_count = cfg.get("cluster_count")
     if not (_is_int(cluster_count) and cluster_count >= 1):
         raise ConfigError("cluster_count must be a positive integer")
+    n_init = cfg.get("kmeans_n_init")
+    if not (_is_int(n_init) and n_init >= 1):
+        raise ConfigError("kmeans_n_init must be a positive integer")
     if not _is_int(cfg.get("random_seed")):
         raise ConfigError("random_seed must be an integer")
 

@@ -180,9 +180,9 @@ def separate_collisions(
     return out, len(moved)
 
 
-def assign_clusters(vectors: np.ndarray, n_clusters: int, seed: int) -> np.ndarray:
+def assign_clusters(vectors: np.ndarray, n_clusters: int, n_init: int, seed: int) -> np.ndarray:
     """K-Means on the full weighted vectors, not on the 2D coordinates."""
-    return KMeans(n_clusters=n_clusters, random_state=seed, n_init=10).fit_predict(vectors)
+    return KMeans(n_clusters=n_clusters, random_state=seed, n_init=n_init).fit_predict(vectors)
 
 
 def cluster_rows(n_clusters: int, colors: list[str]) -> list[dict]:
@@ -207,7 +207,7 @@ def build_map(corpus: TagCorpus, cfg: dict) -> MapBuild:
     coords, moved = separate_collisions(
         coords, corpus.game_ids, layout["collision_min_distance"]
     )
-    labels = assign_clusters(vectors, n_clusters, seed)
+    labels = assign_clusters(vectors, n_clusters, cfg["kmeans_n_init"], seed)
     positions = [
         {
             "game_id": int(gid),
