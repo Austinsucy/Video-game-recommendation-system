@@ -1,0 +1,25 @@
+# DRAFT: known-similar game pairs for scoring vectorization methods (DATA 2).
+# Pending approval from Kayne and Austin. Every title exists in data/games.db.
+# These pairs are tied to the popular_recent selection; under another selection
+# mode some titles will be absent and the comparison report lists them as such.
+# Each entry is [title_a, title_b]; titles must match games.title exactly.
+- ["Battlefield™ V", "Battlefield™ 1"]
+- ["Battlefield 4™", "Battlefield 3™"]
+- ["Resident Evil 2", "Resident Evil 3"]
+- ["Resident Evil 4", "Resident Evil Village"]
+- ["Need for Speed™ Heat", "Need for Speed™ Payback"]
+- ["Football Manager 2023", "Football Manager 2024"]
+- ["EA SPORTS FC™ 24", "EA SPORTS FC™ 25"]
+- ["Farming Simulator 22", "Farming Simulator 25"]
+- ["Age of Empires II: Definitive Edition", "Age of Empires IV: Anniversary Edition"]
+- ["Hades", "Hades II"]
+- ["Slay the Spire", "Monster Train"]
+- ["Dying Light", "Dying Light 2 Stay Human: Reloaded Edition"]
+- ["OCTOPATH TRAVELER™", "OCTOPATH TRAVELER II"]
+- ["God of War", "God of War Ragnarök"]
+- ["Mortal Kombat\u00a011", "Mortal Kombat 1"]
+- ["Lethal Company", "Content Warning"]
+- ["Factorio", "Satisfactory"]
+- ["Borderlands 3", "Tiny Tina's Wonderlands"]
+- ["Sniper Ghost Warrior Contracts", "Sniper Ghost Warrior Contracts 2"]
+- ["Total War: WARHAMMER III", "Total War: THREE KINGDOMS"]

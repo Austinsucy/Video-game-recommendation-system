@@ -27,6 +27,7 @@ data/artifacts/
 *.sqlite
 *.sqlite3
 !data/games.db
+!data/map.db
 
 # OS
 .DS_Store

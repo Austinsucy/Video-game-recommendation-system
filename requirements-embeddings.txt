@@ -1,0 +1,6 @@
+# Optional: only for the desc_embed vectorization method. Not needed by the core pipeline (CON 1).
+# Install: uv pip install -r requirements-embeddings.txt   (or pip install -r ...)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1
+sentence-transformers==6.2.0
+transformers==5.21.0
