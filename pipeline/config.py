@@ -13,6 +13,7 @@ from backend.app.models import VALID_CATEGORIES
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = REPO_ROOT / "data" / "artifacts"
+MAP_DB_PATH = REPO_ROOT / "data" / "map.db"
 _HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
 LAYOUT_METHODS = ("pca", "tsne")  # pipeline/build_map.py LAYOUTS
 VERSION_ID = re.compile(r"[A-Za-z0-9._-]+")

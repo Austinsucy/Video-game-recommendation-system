@@ -4,7 +4,8 @@
 
 The default is a dry run: it builds, validates against the games table and
 writes data/artifacts/map_<version>.json. Only `--publish` writes to the
-database, through pipeline.publish.
+database, through pipeline.publish, then exports data/map.db for the browser
+(pipeline.export_map).
 
 Shape of the data:
     vectors  (n, m) L2-normalised rows from pipeline.vectorize, so a dot
@@ -31,7 +32,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
 from backend.app.db import DB_PATH
-from pipeline import publish
+from pipeline import export_map, publish
 from pipeline.config import (
     ARTIFACTS_DIR,
     alias_lookup,
@@ -319,6 +320,7 @@ def main(argv: list[str] | None = None) -> None:
             feature_artifact_ref=f"vectorization:{method}",
         )
         print(f"published {version}")
+        export_map.main([])
     else:
         print("dry run: nothing written to the database (use --publish)")
 
