@@ -42,76 +42,62 @@ CREATE TABLE game_genres (
 );
 """
 
-CLUSTERS_SQL = """
-SELECT cluster_id, display_name, color FROM clusters
-WHERE map_version_id = ? ORDER BY cluster_id
-"""
-GAMES_SQL = """
-SELECT g.game_id, g.title, m.x, m.y, m.cluster_id, g.popularity
-FROM map_games m JOIN games g USING (game_id)
-WHERE m.map_version_id = ? ORDER BY g.game_id
-"""
-GENRES_SQL = """
-SELECT gf.game_id, f.display_name
-FROM game_features gf
-JOIN features f USING (feature_id)
-JOIN map_games m ON m.game_id = gf.game_id AND m.map_version_id = ?
-WHERE f.category = 'genre'
-ORDER BY gf.game_id, f.display_name
-"""
+COPIES = {
+    "clusters": """
+        INSERT INTO clusters (cluster_id, name, color)
+        SELECT cluster_id, display_name, color FROM src.clusters
+        WHERE map_version_id = :version ORDER BY cluster_id
+    """,
+    "games": """
+        INSERT INTO games (game_id, title, x, y, cluster_id, popularity)
+        SELECT g.game_id, g.title, m.x, m.y, m.cluster_id, g.popularity
+        FROM src.map_games m JOIN src.games g USING (game_id)
+        WHERE m.map_version_id = :version ORDER BY g.game_id
+    """,
+    "game_genres": """
+        INSERT INTO game_genres (game_id, genre)
+        SELECT DISTINCT gf.game_id, f.display_name
+        FROM src.game_features gf
+        JOIN src.features f USING (feature_id)
+        JOIN src.map_games m ON m.game_id = gf.game_id AND m.map_version_id = :version
+        WHERE f.category = 'genre'
+        ORDER BY gf.game_id, f.display_name
+    """,
+}
 
 
-def export_map_db(source_db: Path, out_path: Path) -> str:
-    """Write the active map version of `source_db` to `out_path`; return the version id.
+def export_map_db(source_db: Path, out_path: Path) -> tuple[str, dict[str, int]]:
+    """Write the active map version of `source_db` to `out_path`.
 
-    A failure leaves any existing `out_path` untouched.
+    Returns the version id and the row count of each copied table. A failure
+    leaves any existing `out_path` untouched.
     """
-    out_path = Path(out_path)
-    src = sqlite3.connect(Path(source_db).resolve().as_uri() + "?mode=ro", uri=True)
     tmp = out_path.with_name(out_path.name + ".tmp")
+    tmp.unlink(missing_ok=True)
+    conn = sqlite3.connect(tmp, uri=True)
     try:
-        row = src.execute(
-            "SELECT map_version_id, created_at FROM map_versions WHERE is_active = 1"
+        conn.execute("ATTACH DATABASE ? AS src", (source_db.resolve().as_uri() + "?mode=ro",))
+        row = conn.execute(
+            "SELECT map_version_id, created_at FROM src.map_versions WHERE is_active = 1"
         ).fetchone()
         if row is None:
             raise ValueError(f"no active map version in {source_db}; publish one first")
         version, created_at = row
 
-        tmp.unlink(missing_ok=True)
-        dst = sqlite3.connect(tmp)
-        try:
-            dst.executescript(SCHEMA)
-            dst.execute("INSERT INTO map_info VALUES (?, ?)", (version, created_at))
-            dst.executemany(
-                "INSERT INTO clusters VALUES (?, ?, ?)", src.execute(CLUSTERS_SQL, (version,))
-            )
-            dst.executemany(
-                "INSERT INTO games VALUES (?, ?, ?, ?, ?, ?)", src.execute(GAMES_SQL, (version,))
-            )
-            dst.executemany(
-                "INSERT INTO game_genres VALUES (?, ?)", src.execute(GENRES_SQL, (version,))
-            )
-            dst.commit()
-        finally:
-            dst.close()
+        conn.executescript(SCHEMA)
+        conn.execute("INSERT INTO map_info VALUES (?, ?)", (version, created_at))
+        counts = {
+            table: conn.execute(sql, {"version": version}).rowcount
+            for table, sql in COPIES.items()
+        }
+        conn.commit()
+        conn.close()
         os.replace(tmp, out_path)
     except BaseException:
+        conn.close()
         tmp.unlink(missing_ok=True)
         raise
-    finally:
-        src.close()
-    return version
-
-
-def table_counts(db_path: Path) -> dict[str, int]:
-    conn = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
-    try:
-        return {
-            t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-            for t in ("clusters", "games", "game_genres")
-        }
-    finally:
-        conn.close()
+    return version, counts
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -119,9 +105,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--out", type=Path, default=MAP_DB_PATH)
     args = parser.parse_args(argv)
 
-    version = export_map_db(DB_PATH, args.out)
-    counts = ", ".join(f"{n} {t}" for t, n in table_counts(args.out).items())
-    print(f"exported map version {version} to {args.out} ({counts})")
+    version, counts = export_map_db(DB_PATH, args.out)
+    summary = ", ".join(f"{n} {table}" for table, n in counts.items())
+    print(f"exported map version {version} to {args.out} ({summary})")
 
 
 if __name__ == "__main__":

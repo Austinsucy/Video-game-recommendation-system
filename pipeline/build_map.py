@@ -32,14 +32,16 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
 from backend.app.db import DB_PATH
-from pipeline import export_map, publish
+from pipeline import publish
 from pipeline.config import (
     ARTIFACTS_DIR,
+    MAP_DB_PATH,
     alias_lookup,
     is_valid_version_id,
     load_config,
     vectorization_params,
 )
+from pipeline.export_map import export_map_db
 from pipeline.vectorize import (
     SIMILARITY_DECIMALS,
     TagCorpus,
@@ -320,7 +322,14 @@ def main(argv: list[str] | None = None) -> None:
             feature_artifact_ref=f"vectorization:{method}",
         )
         print(f"published {version}")
-        export_map.main([])
+        try:
+            export_map_db(DB_PATH, MAP_DB_PATH)
+        except Exception as exc:
+            sys.exit(
+                f"published {version}, but exporting {MAP_DB_PATH} failed: {exc}\n"
+                "The browser map is stale. Fix the cause, then run python -m pipeline.export_map."
+            )
+        print(f"exported {MAP_DB_PATH}")
     else:
         print("dry run: nothing written to the database (use --publish)")
 

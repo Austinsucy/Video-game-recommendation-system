@@ -5,6 +5,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.models import Base, Feature, Game, GameFeature
+from pipeline import export_map
 from pipeline.export_map import export_map_db
 from pipeline.publish import publish_map
 from tests.conftest import make_clusters, make_neighbors, make_positions
@@ -50,10 +51,10 @@ def source(tmp_path):
     return path, make
 
 
-def publish(make, version, x=1.0):
+def publish(make, version, x=1.0, clusters=None):
     publish_map(
         version,
-        make_clusters(2),
+        clusters or make_clusters(2),
         make_positions(IDS, x=x),
         make_neighbors(IDS),
         session_factory=make,
@@ -73,7 +74,7 @@ def test_exports_the_active_map(source, tmp_path):
     publish(make, "v1")
     out = tmp_path / "map.db"
 
-    assert export_map_db(path, out) == "v1"
+    assert export_map_db(path, out) == ("v1", {"clusters": 2, "games": len(IDS), "game_genres": 3})
 
     assert rows(out, "SELECT map_version FROM map_info") == [("v1",)]
     assert rows(out, "SELECT * FROM clusters ORDER BY cluster_id") == [
@@ -109,7 +110,7 @@ def test_only_the_active_version_is_exported(source, tmp_path):
     publish(make, "v2", x=100.0)
     out = tmp_path / "map.db"
 
-    assert export_map_db(path, out) == "v2"
+    assert export_map_db(path, out)[0] == "v2"
     assert rows(out, "SELECT map_version FROM map_info") == [("v2",)]
     assert rows(out, "SELECT x FROM games WHERE game_id = 1") == [(101.0,)]
     assert rows(out, "SELECT COUNT(*) FROM games") == [(len(IDS),)]
@@ -125,3 +126,38 @@ def test_no_active_version_raises_and_keeps_existing_output(source, tmp_path):
 
     assert out.read_bytes() == b"previous"
     assert [p.name for p in tmp_path.iterdir() if p.name != "games.db"] == ["map.db"]
+
+
+def leftovers(tmp_path):
+    return sorted(p.name for p in tmp_path.iterdir() if p.name != "games.db")
+
+
+def test_a_failed_write_keeps_the_previous_map(source, tmp_path):
+    path, make = source
+    colourless = [{**c, "color": None} for c in make_clusters(2)]
+    publish(make, "v1", clusters=colourless)
+    out = tmp_path / "map.db"
+    out.write_bytes(b"previous")
+
+    with pytest.raises(sqlite3.IntegrityError):
+        export_map_db(path, out)
+
+    assert out.read_bytes() == b"previous"
+    assert leftovers(tmp_path) == ["map.db"]
+
+
+def test_a_failed_swap_keeps_the_previous_map(source, tmp_path, monkeypatch):
+    path, make = source
+    publish(make, "v1")
+    out = tmp_path / "map.db"
+    out.write_bytes(b"previous")
+
+    def fail(*_):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(export_map.os, "replace", fail)
+    with pytest.raises(OSError, match="disk full"):
+        export_map_db(path, out)
+
+    assert out.read_bytes() == b"previous"
+    assert leftovers(tmp_path) == ["map.db"]
