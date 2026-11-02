@@ -10,6 +10,12 @@
 # tag maps to which category, and what the category weights should be.
 # Extend freely - the importer validates this file and reports what it could
 # not map, so nothing silently disappears.
+#
+# 2026-11-02 (Austin): first vocabulary pass. Added 15 features and 64 aliases
+# for the most common unmapped tags. Art style, mood, content warnings and
+# business tags (Indie, Atmospheric, Pixel Graphics, Violent...) stay
+# display-only on purpose. Takes effect only after `python -m pipeline.ingest
+# --reset`; published map v1 is unchanged.
 # =============================================================================
 
 map_version: "v1"
@@ -191,6 +197,12 @@ vocabulary:
     - {name: stealth_play, display_name: "Stealth"}
     - {name: survival_play, display_name: "Survival"}
     - {name: farming, display_name: "Farming"}
+    - {name: souls_like, display_name: "Souls-like"}
+    - {name: dungeon_crawler, display_name: "Dungeon Crawling"}
+    - {name: immersive_sim, display_name: "Immersive Sim"}
+    - {name: life_sim, display_name: "Life Sim"}
+    - {name: idle, display_name: "Idle / Clicker"}
+    - {name: flight, display_name: "Flight / Piloting"}
 
   mechanic:
     - {name: crafting, display_name: "Crafting"}
@@ -203,6 +215,9 @@ vocabulary:
     - {name: looting, display_name: "Looting"}
     - {name: tower_defense, display_name: "Tower Defense"}
     - {name: point_and_click, display_name: "Point & Click"}
+    - {name: melee_combat, display_name: "Melee Combat"}
+    - {name: automation, display_name: "Automation"}
+    - {name: bullet_hell, display_name: "Bullet Hell"}
 
   structure:
     - {name: open_world, display_name: "Open World"}
@@ -213,6 +228,7 @@ vocabulary:
     - {name: level_based, display_name: "Level-Based"}
     - {name: episodic, display_name: "Episodic"}
     - {name: multiple_endings, display_name: "Multiple Endings"}
+    - {name: metroidvania, display_name: "Metroidvania"}
 
   theme:
     - {name: fantasy, display_name: "Fantasy"}
@@ -227,6 +243,10 @@ vocabulary:
     - {name: mystery, display_name: "Mystery"}
     - {name: comedy, display_name: "Comedy"}
     - {name: western, display_name: "Western"}
+    - {name: medieval, display_name: "Medieval"}
+    - {name: zombies, display_name: "Zombies"}
+    - {name: crime, display_name: "Crime"}
+    - {name: romance, display_name: "Romance"}
 
   perspective:
     - {name: first_person, display_name: "First-Person"}
@@ -253,6 +273,7 @@ vocabulary:
     - {name: split_screen_pvp, display_name: "Split Screen PvP"}
     - {name: cross_platform, display_name: "Cross-Platform Multiplayer"}
     - {name: remote_play_together, display_name: "Remote Play Together"}
+    - {name: pve, display_name: "PvE"}
 
   platform:
     - {name: windows, display_name: "Windows"}
@@ -294,6 +315,19 @@ aliases:
   "Horror": [genre, horror]
   "Action-Adventure": [genre, adventure]
   "Arcade": [genre, casual]
+  # RPG subgenres collapse into one genre so a game is not counted as RPG twice.
+  "Action RPG": [genre, rpg]
+  "JRPG": [genre, rpg]
+  "CRPG": [genre, rpg]
+  "MMORPG": [genre, rpg]
+  "Party-Based RPG": [genre, rpg]
+  "Tactical RPG": [genre, rpg]
+  "Strategy RPG": [genre, rpg]
+  "Grand Strategy": [genre, strategy]
+  "Wargame": [genre, strategy]
+  "3D Platformer": [genre, platformer]
+  "Puzzle-Platformer": [genre, platformer]
+  "Arena Shooter": [genre, shooter]
 
   # --- gameplay ---
   "Exploration": [gameplay, exploration]
@@ -307,6 +341,24 @@ aliases:
   "Farming": [gameplay, farming]
   "Farming Sim": [gameplay, farming]
   "Survival Horror": [gameplay, survival_play]
+  "Open World Survival Craft": [gameplay, survival_play]
+  "Interactive Fiction": [gameplay, story_driven]
+  "Walking Simulator": [gameplay, exploration]
+  "City Builder": [gameplay, building]
+  "Resource Management": [gameplay, management]
+  "Economy": [gameplay, management]
+  "Time Management": [gameplay, management]
+  "Colony Sim": [gameplay, management]
+  "Automobile Sim": [gameplay, racing_driving]
+  "Agriculture": [gameplay, farming]
+  "Souls-like": [gameplay, souls_like]
+  "Dungeon Crawler": [gameplay, dungeon_crawler]
+  "Immersive Sim": [gameplay, immersive_sim]
+  "Life Sim": [gameplay, life_sim]
+  "Idler": [gameplay, idle]
+  "Clicker": [gameplay, idle]
+  "Flight": [gameplay, flight]
+  "Space Sim": [gameplay, flight]
 
   # --- mechanic ---
   "Crafting": [mechanic, crafting]
@@ -325,6 +377,14 @@ aliases:
   "Looter Shooter": [mechanic, looting]
   "Tower Defense": [mechanic, tower_defense]
   "Point & Click": [mechanic, point_and_click]
+  "Card Battler": [mechanic, deck_building]
+  "Turn-Based Tactics": [mechanic, turn_based]
+  "Real-Time with Pause": [mechanic, real_time]
+  "Hack and Slash": [mechanic, melee_combat]
+  "Beat 'em up": [mechanic, melee_combat]
+  "Swordplay": [mechanic, melee_combat]
+  "Automation": [mechanic, automation]
+  "Bullet Hell": [mechanic, bullet_hell]
 
   # --- structure ---
   "Open World": [structure, open_world]
@@ -338,6 +398,11 @@ aliases:
   "Episodic": [structure, episodic]
   "Multiple Endings": [structure, multiple_endings]
   "Choices Matter": [structure, multiple_endings]
+  "Choose Your Own Adventure": [structure, multiple_endings]
+  # Steam spells this one three ways; all three were not mapped before.
+  "Rogue-lite": [structure, roguelike]
+  "Action Roguelike": [structure, roguelike]
+  "Metroidvania": [structure, metroidvania]
 
   # --- theme ---
   "Fantasy": [theme, fantasy]
@@ -358,6 +423,22 @@ aliases:
   "Comedy": [theme, comedy]
   "Funny": [theme, comedy]
   "Western": [theme, western]
+  "Magic": [theme, fantasy]
+  "Mythology": [theme, fantasy]
+  "Dragons": [theme, fantasy]
+  "Futuristic": [theme, sci_fi]
+  "Aliens": [theme, sci_fi]
+  "Robots": [theme, sci_fi]
+  "Mechs": [theme, sci_fi]
+  "Alternate History": [theme, historical]
+  "Lovecraftian": [theme, horror_theme]
+  "Investigation": [theme, mystery]
+  "Dark Humor": [theme, comedy]
+  "Medieval": [theme, medieval]
+  "Zombies": [theme, zombies]
+  "Crime": [theme, crime]
+  "Romance": [theme, romance]
+  "Dating Sim": [theme, romance]
 
   # --- multiplayer, when it arrives as a tag rather than a Steam category ---
   # These are exact synonyms of features already defined above, so mapping them
@@ -369,6 +450,12 @@ aliases:
   "Local Co-Op": [multiplayer, split_screen_co_op]
   "PvP": [multiplayer, pvp]
   "Base-Building": [mechanic, base_building]
+  "Co-op Campaign": [multiplayer, co_op]
+  "Local Multiplayer": [multiplayer, split_screen]
+  "Split Screen": [multiplayer, split_screen]
+  "Competitive": [multiplayer, pvp]
+  "e-sports": [multiplayer, pvp]
+  "PvE": [multiplayer, pve]
 
   # --- perspective ---
   "First-Person": [perspective, first_person]
