@@ -1,4 +1,4 @@
-# DRAFT: known-similar game pairs for scoring vectorization methods (DATA 2).
+# Known-similar game pairs for scoring vectorization methods (DATA 2).
 # Pending approval from Kayne and Austin. Every title exists in data/games.db.
 # These pairs are tied to the popular_recent selection; under another selection
 # mode some titles will be absent and the comparison report lists them as such.
@@ -23,3 +23,19 @@
 - ["Borderlands 3", "Tiny Tina's Wonderlands"]
 - ["Sniper Ghost Warrior Contracts", "Sniper Ghost Warrior Contracts 2"]
 - ["Total War: WARHAMMER III", "Total War: THREE KINGDOMS"]
+# Same franchise, different style (3D shooter vs 2D pixel platformer): only 9 of 20 tags shared.
+- ["Risk of Rain 2", "Risk of Rain Returns"]
+# Cross-studio pairs: similar games that do not share a franchise, so they are
+# harder to match than sequels and separate the methods better.
+- ["Vampire Survivors", "Brotato"]
+- ["Slay the Spire", "Balatro"]
+- ["Valheim", "Enshrouded"]
+- ["Factorio", "Dyson Sphere Program"]
+- ["Phasmophobia", "Lethal Company"]
+- ["ELDEN RING", "Lies of P"]
+- ["Path of Exile 2", "Last Epoch"]
+- ["Deep Rock Galactic", "HELLDIVERS™ 2"]
+- ["It Takes Two", "A Way Out"]
+- ["Coral Island", "DAVE THE DIVER"]
+- ["Outer Wilds", "TUNIC"]
+- ["Raft", "Green Hell"]
