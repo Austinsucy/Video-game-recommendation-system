@@ -139,6 +139,7 @@ Nine tables, following the scrum doc. Two are additions, both flagged for review
 |---|---|
 | DATA 1 completeness ≥ 95% | `tests/test_data_quality.py::test_data1_completeness_at_least_95_percent` |
 | No game appears twice | `tests/test_data_quality.py::test_no_game_appears_twice` |
+| DATA 2 similar pairs ≥ 80% mutual top-15 | `tests/test_data_quality.py::test_data2_similar_pairs_are_in_each_others_top_15` |
 | CON 3 size cap | `tests/test_data_quality.py::test_game_count_within_cap` |
 | Foreign-key enforcement | `tests/test_schema.py::test_foreign_keys_are_enforced` |
 | Required indexes | `tests/test_schema.py::test_required_indexes_exist` |
