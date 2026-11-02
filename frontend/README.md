@@ -24,7 +24,9 @@ created class name "app shell" and added a header, description, toolbar, map spa
 used shell.css to get the class names in order for App.tsx
 
 ## HOW TO START THE FRONT END SHELL
-
+- You will need NPM in your terminal/commandline
+- change your directory to ../video-game-recommendation-system/frontend
+- run "npm run build" and then "npm run dev", then enter 'o' and press return/enter
 
 ## Expanding the ESLint configuration
 
