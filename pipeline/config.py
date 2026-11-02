@@ -13,6 +13,7 @@ from backend.app.models import VALID_CATEGORIES
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = REPO_ROOT / "data" / "artifacts"
+MAP_DB_PATH = REPO_ROOT / "data" / "map.db"
 _HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
 LAYOUT_METHODS = ("pca", "tsne")  # pipeline/build_map.py LAYOUTS
 VERSION_ID = re.compile(r"[A-Za-z0-9._-]+")
@@ -94,6 +95,9 @@ def validate_config(cfg: dict) -> None:
     cluster_count = cfg.get("cluster_count")
     if not (_is_int(cluster_count) and cluster_count >= 1):
         raise ConfigError("cluster_count must be a positive integer")
+    n_init = cfg.get("kmeans_n_init")
+    if not (_is_int(n_init) and n_init >= 1):
+        raise ConfigError("kmeans_n_init must be a positive integer")
     if not _is_int(cfg.get("random_seed")):
         raise ConfigError("random_seed must be an integer")
 

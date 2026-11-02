@@ -15,6 +15,7 @@
 map_version: "v1"
 random_seed: 42          # REL 2: every randomised step in the pipeline uses this
 cluster_count: 12        # placeholder - Austin/Kayne decide
+kmeans_n_init: 10        # K-Means restarts from different seeded centroids; the lowest-inertia run wins
 
 # -----------------------------------------------------------------------------
 # Dataset + selection rule

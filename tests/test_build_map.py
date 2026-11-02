@@ -163,7 +163,7 @@ def test_clusters_separate_groups_that_the_2d_layout_merges():
     a, b = blob([5, 0, 0]), blob([5, 0, 0.5])
     far = [blob([-5, 4, 0]), blob([-5, -4, 0])]
     vectors = np.vstack([a, b, *far])
-    labels = assign_clusters(vectors, 4, seed=42)
+    labels = assign_clusters(vectors, 4, n_init=10, seed=42)
     assert len(set(labels[:10])) == 1 and len(set(labels[10:20])) == 1
     assert labels[0] != labels[10]
 

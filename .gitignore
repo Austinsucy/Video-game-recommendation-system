@@ -1,6 +1,8 @@
 # Secrets (SEC 2) - this file must exist before any API key does
 .env
 .env.local
+.env.*
+!.env.example
 
 # Python
 .venv/
@@ -25,6 +27,7 @@ data/artifacts/
 *.sqlite
 *.sqlite3
 !data/games.db
+!data/map.db
 
 # OS
 .DS_Store

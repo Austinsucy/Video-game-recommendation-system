@@ -4,7 +4,8 @@
 
 The default is a dry run: it builds, validates against the games table and
 writes data/artifacts/map_<version>.json. Only `--publish` writes to the
-database, through pipeline.publish.
+database, through pipeline.publish, then exports data/map.db for the browser
+(pipeline.export_map).
 
 Shape of the data:
     vectors  (n, m) L2-normalised rows from pipeline.vectorize, so a dot
@@ -34,11 +35,13 @@ from backend.app.db import DB_PATH
 from pipeline import publish
 from pipeline.config import (
     ARTIFACTS_DIR,
+    MAP_DB_PATH,
     alias_lookup,
     is_valid_version_id,
     load_config,
     vectorization_params,
 )
+from pipeline.export_map import export_map_db
 from pipeline.vectorize import (
     SIMILARITY_DECIMALS,
     TagCorpus,
@@ -180,9 +183,9 @@ def separate_collisions(
     return out, len(moved)
 
 
-def assign_clusters(vectors: np.ndarray, n_clusters: int, seed: int) -> np.ndarray:
+def assign_clusters(vectors: np.ndarray, n_clusters: int, n_init: int, seed: int) -> np.ndarray:
     """K-Means on the full weighted vectors, not on the 2D coordinates."""
-    return KMeans(n_clusters=n_clusters, random_state=seed, n_init=10).fit_predict(vectors)
+    return KMeans(n_clusters=n_clusters, random_state=seed, n_init=n_init).fit_predict(vectors)
 
 
 def cluster_rows(n_clusters: int, colors: list[str]) -> list[dict]:
@@ -207,7 +210,7 @@ def build_map(corpus: TagCorpus, cfg: dict) -> MapBuild:
     coords, moved = separate_collisions(
         coords, corpus.game_ids, layout["collision_min_distance"]
     )
-    labels = assign_clusters(vectors, n_clusters, seed)
+    labels = assign_clusters(vectors, n_clusters, cfg["kmeans_n_init"], seed)
     positions = [
         {
             "game_id": int(gid),
@@ -319,6 +322,14 @@ def main(argv: list[str] | None = None) -> None:
             feature_artifact_ref=f"vectorization:{method}",
         )
         print(f"published {version}")
+        try:
+            export_map_db(DB_PATH, MAP_DB_PATH)
+        except Exception as exc:
+            sys.exit(
+                f"published {version}, but exporting {MAP_DB_PATH} failed: {exc}\n"
+                "The browser map is stale. Fix the cause, then run python -m pipeline.export_map."
+            )
+        print(f"exported {MAP_DB_PATH}")
     else:
         print("dry run: nothing written to the database (use --publish)")
 
