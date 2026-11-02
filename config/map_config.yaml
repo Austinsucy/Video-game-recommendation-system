@@ -14,7 +14,8 @@
 # 2026-11-02 (Austin): first vocabulary pass. Added 15 features and 64 aliases
 # for the most common unmapped tags. Art style, mood, content warnings and
 # business tags (Indie, Atmospheric, Pixel Graphics, Violent...) stay
-# display-only on purpose. Takes effect only after `python -m pipeline.ingest
+# display-only on purpose. "Tactical" stays display-only too: it covers both
+# tactical shooters and tactics games (docs/decisions.md, decision 6). Takes effect only after `python -m pipeline.ingest
 # --reset`; published map v1 is unchanged.
 # =============================================================================
 
