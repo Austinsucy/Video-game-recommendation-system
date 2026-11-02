@@ -1,6 +1,7 @@
-"""DATA 1, CON 3 and integrity checks against the built database.
+"""DATA 1, DATA 2, CON 3 and integrity checks against the built database.
 
 These run against data/games.db, so they are skipped until the import has run.
+The DATA 2 checks are also skipped until a map version is published.
 """
 import pytest
 from sqlalchemy import func, select
@@ -12,13 +13,18 @@ from backend.app.models import (
     GameFeature,
     GameFeatureCoverage,
     GameSource,
+    MapNeighbor,
+    MapVersion,
 )
+from pipeline.compare_vectors import read_pair_titles
 
 pytestmark = pytest.mark.skipif(
     not DB_PATH.exists(), reason="run `python -m pipeline.ingest` first"
 )
 
 MAX_GAMES = 1100  # CON 3
+DATA2_TOP_K = 15
+DATA2_MIN_SHARE = 0.8  # DATA 2: at least 8 of 10 known pairs
 
 
 @pytest.fixture(scope="module")
@@ -111,3 +117,36 @@ def test_rating_scale_present_whenever_rating_is(session):
         .where(Game.rating.isnot(None), Game.rating_scale.is_(None))
     )
     assert bad == 0
+
+
+@pytest.fixture(scope="module")
+def published_neighbors(session):
+    """{game_id: set of its top-15 neighbour ids} for the active map version."""
+    version = session.scalar(select(MapVersion.map_version_id).where(MapVersion.is_active == 1))
+    if version is None:
+        pytest.skip("no published map version; run `python -m pipeline.build_map --publish`")
+    neighbors: dict[int, set[int]] = {}
+    for gid, nid in session.execute(
+        select(MapNeighbor.game_id, MapNeighbor.neighbor_game_id).where(
+            MapNeighbor.map_version_id == version, MapNeighbor.rank <= DATA2_TOP_K
+        )
+    ):
+        neighbors.setdefault(gid, set()).add(nid)
+    return neighbors
+
+
+def test_every_similar_pair_names_games_in_the_database(session):
+    titles = set(session.scalars(select(Game.title)).all())
+    missing = sorted({t for pair in read_pair_titles() for t in pair} - titles)
+    assert missing == []
+
+
+def test_data2_similar_pairs_are_in_each_others_top_15(session, published_neighbors):
+    """DATA 2: at least 80% of the approved pairs are mutual top-15 neighbours."""
+    game_id = dict(session.execute(select(Game.title, Game.game_id)).all())
+    pairs = [(game_id[a], game_id[b]) for a, b in read_pair_titles()]
+    mutual = [
+        b in published_neighbors.get(a, set()) and a in published_neighbors.get(b, set())
+        for a, b in pairs
+    ]
+    assert sum(mutual) / len(pairs) >= DATA2_MIN_SHARE, f"{sum(mutual)} of {len(pairs)} pairs"
