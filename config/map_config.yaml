@@ -19,7 +19,7 @@
 # --reset`; published map v1 is unchanged.
 # =============================================================================
 
-map_version: "v1"
+map_version: "v2"
 random_seed: 42          # REL 2: every randomised step in the pipeline uses this
 cluster_count: 12        # placeholder - Austin/Kayne decide
 kmeans_n_init: 10        # K-Means restarts from different seeded centroids; the lowest-inertia run wins
@@ -111,7 +111,9 @@ fields:
 # The other methods work on raw tag votes. Which method publishes is an open
 # team decision (GM 1).
 #
-# Category weights - Austin/Kayne tune these.
+# Category weights - Austin/Kayne tune these. `python -m pipeline.tune_weights`
+# found no weights that do better on held-out similar pairs (docs/decisions.md,
+# decision 4), so these are unchanged.
 # `tag` is 0.0 on purpose: the scrum doc says display tags must not become an
 # extra weighted category or double-count a concept already captured elsewhere.
 # -----------------------------------------------------------------------------
@@ -131,7 +133,7 @@ category_weights:
 # `python -m pipeline.compare_vectors`, then set `method` to the winner.
 # -----------------------------------------------------------------------------
 vectorization:
-  method: "votes_log_idf"      # PLACEHOLDER until Kayne/Austin pick from the comparison
+  method: "votes_max"          # chosen 2026-11-02 for map v2 (docs/decisions.md, decision 4); v1 used votes_log_idf
   description_floor: 0.4       # weight of a present tag the description never mentions
   hybrid_alpha: 0.7            # hybrid_* = alpha * votes_log + (1 - alpha) * description
   rank_depth: 20               # Steam keeps each game's top 20 tags
