@@ -12,11 +12,11 @@ Requirement references are to the System Requirements document (10/9/2026).
 |---|---|---|---|
 | 1 | Similarity measure | Decided | Cosine similarity, 15 neighbours per game |
 | 2 | Clusters | Decided (count open) | K-Means on the full vectors, 12 clusters |
-| 3 | 2D layout | Decided by implementation; requirements not updated | t-SNE |
-| 4 | Vectorization method | **Open** | `votes_log_idf` (placeholder used for map v1) |
+| 3 | 2D layout | Decided | t-SNE |
+| 4 | Vectorization method | Decided; published as map v2 | `votes_max`; map v1 used `votes_log_idf` |
 | 5 | Feature vocabulary | Decided | 15 new features, 64 new aliases |
 | 6 | "Tactical" tag | Decided | Display-only |
-| 7 | Similar-pairs list | Proposed | 33 pairs (20 sequels, 13 cross-studio) |
+| 7 | Similar-pairs list | Decided | 33 pairs (20 sequels, 13 cross-studio) |
 | 8 | Reproducible builds | Proposed | Build published maps with the pinned `requirements.txt` only |
 
 ## 1. Similarity measure: cosine, 15 neighbours (decided)
@@ -32,7 +32,7 @@ GM 1 specifies K-Means on the full weighted vectors, not the 2D points.
 `config/map_config.yaml`. Cluster names are `Cluster 0` to `Cluster 11` until
 the team names them (CL 1).
 
-## 3. 2D layout: t-SNE instead of PCA (decided by implementation)
+## 3. 2D layout: t-SNE instead of PCA (decided)
 
 - **Choice:** `layout.method: tsne`, perplexity 30, PCA initialisation, seed 42.
 - **Why:** with `votes_log_idf`, t-SNE keeps 47.5% of each game's 15 nearest
@@ -42,13 +42,40 @@ the team names them (CL 1).
   data or weights rearranges the whole map; it is slower than PCA.
 - **Evidence:** commit `dc78a3f` (Kayne, 2026-10-28) and the Tag Vector Lab
   comparison page.
-- **Gap:** GM 1 and UDR 1 still say PCA. Either update the requirements or
-  decide how UDR 1 personalised maps will be laid out.
+- **Requirements:** GM 1 and UDR 1 still say PCA. On 2026-11-02 the team chose
+  not to update the requirements document; this entry records the deviation.
 
-## 4. Vectorization method (open)
+## 4. Vectorization method: `votes_max` for map v2 (decided 2026-11-02)
 
-Map v1 was published with `votes_log_idf`, which the config labels a
-placeholder. No method has been formally chosen.
+- **Choice:** `vectorization.method: votes_max`, with `map_version: v2`. Map v1
+  was published with the placeholder `votes_log_idf`; v2 replaces it.
+- **Why `votes_max` over `votes_rank`**, the other finalist:
+  - It finds one more pair: 31 of 33 (11 of 13 cross-studio) against 30 (10).
+    With 13 cross-studio pairs that gap is small.
+  - It has no exact distance ties, so its t-SNE map rebuilds the same on any
+    machine. `votes_rank` ties for every game and its map rearranged between
+    builds (decision 8).
+- **Known weakness:** it does not down-weight tags most games share, so a broad
+  tag such as "Indie" counts fully when it is a game's top tag. The pair scores
+  do not show this hurting. `votes_max_idf` (10 of 13, no ties) is the fallback.
+- **Dry run of v2** (`python -m pipeline.build_map`, nothing written to the
+  database): 1,000 games, 15 neighbours each, validation passed, 51% of
+  neighbours kept on the t-SNE map (v1: 48%), cluster sizes 28 to 136,
+  12 overlapping games moved apart. A second build gave identical positions
+  and clusters.
+- **Change from v1:** on average 6 of each game's 10 nearest games stay the
+  same. 78% of games keep at least 5; 3% keep 2 or fewer. Every position on
+  the map changes, since this is a new layout.
+- **Published 2026-11-02** with `python -m pipeline.build_map --publish`. v2 is
+  the active map version in `data/games.db`, which now also holds each game's
+  15 ranked neighbours (15,000 rows) for the info panel and DATA 2. `data/map.db`
+  was re-exported and matches the build exactly. v1 was never stored in the
+  shared `games.db`; its file is in git history (commit `c9092e0`).
+- **Re-importing now needs care:** `python -m pipeline.ingest` refuses to run
+  while `map_versions` has rows, so a future re-import means deliberately
+  clearing the published map first.
+
+The comparison and tuning below are the evidence for this choice.
 
 Comparison on 2026-11-02 (all 13 methods, vocabulary from decision 5, pairs
 from decision 7, top-15 neighbours):
@@ -74,13 +101,33 @@ What the results show:
   their weights, which GM 1 and UDR 1 depend on, and it currently scores worst.
   Giving the display-only tags weight (0.5, 1, 2) did not help.
 
-Options for the team:
+### Weight tuning for `category_weighted` (2026-11-02)
 
-- **A.** Keep `votes_log_idf` (or switch to `votes_max`) for the default map,
-  and treat UDR 1 personalisation as a separate problem.
-- **B.** Tune the `category_weighted` weights until it matches the tag-vote
-  methods on cross-studio pairs, then use one method for both the default map
-  and UDR 1.
+`python -m pipeline.tune_weights` searches each category weight over
+0 to 3 against the 33 approved pairs, then checks for overfitting by tuning
+without each pair and testing on the one left out. Report:
+`data/artifacts/weight_tuning.md` (not committed).
+
+| Vectors | Sequel (20) | Cross-studio (13) | All (33) |
+|---|---|---|---|
+| category_weighted, config weights | 18 | 6 | 24 |
+| category_weighted, tuned weights | 20 | 7 | 27 |
+| category_weighted, held-out estimate | 19 | 5 | 24 |
+| votes_log_idf, no tuning | 20 | 10 | 30 |
+
+Tuning finds weights that score 27 of 33, but on pairs it did not see it
+scores 24, the same as the untuned config. The gain is fitting to these
+pairs, not a better method. Setting every weight to 1 also scores 24. The
+limit is the method's structure, not its weights: it squeezes 410 tags into
+96 curated features and gives each category an equal block, while
+`votes_log_idf` keeps every tag at full resolution. The config weights were
+left unchanged.
+
+This is why the default map uses a tag-vote method rather than
+`category_weighted`. UDR 1 personalisation is still open. One untested idea:
+keep the default map's tag vectors but scale each tag by the user's weight for
+the category its alias belongs to. With equal weights this is exactly the
+default map, so personalisation would start from the best-scoring vectors.
 
 Avoid `binary` and `votes_rank` for a published map: see decision 8.
 
@@ -113,15 +160,13 @@ to either side would pull the other kind of game toward the wrong
 neighbours. The games already carry more specific mapped tags ("Turn-Based
 Tactics", "Tactical RPG", "RTS", "Shooter", "FPS").
 
-## 7. Similar-pairs list (proposed)
+## 7. Similar-pairs list (decided)
 
 `config/similar_pairs.yaml` holds 33 pairs: 20 sequel pairs and 13 pairs of
-similar games from different studios (commit `aa9808a`). The cross-studio
-pairs are the ones that separate methods. Map v1 has 30 of the 33 pairs
-(0.91) in each other's top 15.
-
-Still to do: the list is pending approval from Kayne and Austin, and DATA 2
-asks for 10 approved pairs with at least 8 passing.
+similar games from different studios (commit `aa9808a`). The team approved
+the list on 2026-11-02. The cross-studio pairs are the ones that separate
+methods. Map v1 has 30 of the 33 pairs (0.91) in each other's top 15, above
+DATA 2's 80% bar (8 of 10).
 
 ## 8. Build published maps with the pinned versions (proposed)
 
