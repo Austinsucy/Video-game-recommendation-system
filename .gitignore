@@ -32,3 +32,6 @@ data/artifacts/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local Claude guidance
+/CLAUDE.md
