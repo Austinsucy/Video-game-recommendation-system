@@ -1,0 +1,293 @@
+:root {
+  --toolbar-height: 52px;
+  --gap: 12px;
+  --surface: #ffffff;
+  --map-bg: #f7f7f5;
+  --border: #e2e2de;
+  --border-strong: #c9c9c3;
+  --text: #1f2937;
+  --text-muted: #4b5563;
+  --accent: #1d4ed8;
+  --info-width: 360px;
+  --feature-width: 300px;
+  --panel-shadow: 0 1px 2px rgb(17 24 39 / 4%), 0 6px 20px rgb(17 24 39 / 6%);
+}
+
+.app-shell {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--map-bg);
+  color: var(--text);
+}
+
+/* ---------- Top toolbar ---------- */
+
+.top-toolbar {
+  flex: none;
+  height: var(--toolbar-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 var(--gap);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  z-index: 10;
+}
+.wordmark {
+  flex: none;
+  margin-right: 8px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.tool-group,
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.tool-group { flex: 1; min-width: 0; }
+.toolbar-right { flex: none; gap: 8px; }
+
+.tool-button.MuiButton-root {
+  height: 34px;
+  padding: 0 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.tool-button .MuiButton-startIcon { margin-right: 6px; margin-left: 0; }
+.tool-button:hover { color: var(--text); background: #f1f1ee; }
+.tool-button.is-active { color: var(--accent); background: #eef2fd; }
+
+.search-box { width: 260px; }
+.search-box .MuiOutlinedInput-root { height: 34px; background: var(--map-bg); }
+.search-box .MuiOutlinedInput-notchedOutline { border-color: var(--border-strong); }
+
+/* ---------- Map ---------- */
+
+.map-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.game-map-canvas { position: absolute; inset: 0; }
+.game-map-canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.map-message {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, calc(100% - 2 * var(--gap)));
+  padding: 12px 16px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.map-error { flex-direction: column; align-items: flex-start; color: var(--text); }
+.map-error p { margin: 0; }
+
+.map-status {
+  position: absolute;
+  left: var(--gap);
+  bottom: var(--gap);
+  max-width: calc(100% - 2 * var(--gap) - 60px);
+  margin: 0;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: rgb(247 247 245 / 85%);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.map-controls {
+  position: absolute;
+  right: var(--gap);
+  bottom: var(--gap);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--panel-shadow);
+  transition: right 160ms ease;
+}
+.map-controls .MuiIconButton-root { border-radius: 0; color: var(--text-muted); }
+.map-controls .MuiIconButton-root + .MuiIconButton-root { border-top: 1px solid var(--border); }
+.map-controls .MuiIconButton-root:hover { color: var(--text); }
+.has-info-panel .map-controls { right: calc(var(--info-width) + 2 * var(--gap)); }
+
+/* ---------- Floating panels ---------- */
+
+.floating-panel {
+  position: absolute;
+  top: var(--gap);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 2 * var(--gap));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--panel-shadow);
+  z-index: 5;
+}
+.info-panel { right: var(--gap); bottom: var(--gap); width: var(--info-width); }
+.feature-panel { left: var(--gap); width: var(--feature-width); }
+
+.panel-header {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 10px 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-heading { min-width: 0; }
+.panel-header h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.panel-header h2:focus { outline: none; }
+.panel-header h2:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.panel-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.requirement-id { font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.04em; }
+.status-chip.MuiChip-root { height: 20px; font-size: 11px; }
+.status-planned.MuiChip-root { color: #92400e; border-color: #f0c78a; background: #fffbf0; }
+.status-partial.MuiChip-root { color: #1e40af; border-color: #bfd0f8; background: #f5f8ff; }
+
+.panel-progress { flex: none; height: 2px !important; }
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 16px;
+  font-size: 13px;
+}
+.panel-body p { margin: 0; }
+.panel-summary { color: var(--text-muted); line-height: 1.5; }
+
+.planned-controls {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.planned-note { font-size: 12px; color: var(--text-muted); }
+.panel-body > .planned-note { margin-top: 12px; }
+.panel-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.panel-actions-stacked { flex-direction: column; align-items: stretch; }
+
+.weight-list { list-style: none; margin: 0; padding: 0; }
+.weight-list li { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 10px; }
+.weight-list .MuiSlider-root { padding: 10px 0; }
+
+.legend-list { list-style: none; margin: 12px 0 0; padding: 0; }
+.legend-list li { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.legend-list li + li { border-top: 1px solid #f0f0ec; }
+.legend-name { flex: 1; }
+.legend-count { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.help-list { margin: 12px 0 0; }
+.help-list > div { padding: 6px 0; }
+.help-list > div + div { border-top: 1px solid #f0f0ec; }
+.help-list dt { font-weight: 600; }
+.help-list dd { margin: 2px 0 0; color: var(--text-muted); }
+
+.cluster-swatch {
+  flex: none;
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(17 24 39 / 15%);
+}
+
+/* ---------- Game information panel ---------- */
+
+.info-cluster {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 460 / 215; /* Steam header image ratio */
+  object-fit: cover;
+  border-radius: 6px;
+}
+.cover-placeholder {
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: #f1f1ee;
+  border: 1px solid var(--border);
+}
+.panel-error {
+  margin-bottom: 12px !important;
+  padding: 8px 10px;
+  color: #991b1b;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+}
+.info-fields { margin: 14px 0 0; }
+.info-field {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid #f0f0ec;
+}
+.info-field:first-child { border-top: 0; padding-top: 0; }
+.info-field dt { color: var(--text-muted); }
+.info-field dd { margin: 0; min-width: 0; }
+.info-section { margin-top: 16px; }
+.info-section h3 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.unavailable { color: #6b7280; font-style: italic; }
+.chip-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.chip-list .MuiChip-root { height: 22px; font-size: 12px; }
+.similar-list { margin: 0; padding-left: 20px; }
+
+/* ---------- Narrower screens (COMP 2: 768-1279 px) ---------- */
+
+@media (max-width: 1239px) {
+  .tool-label { display: none; }
+  .tool-button.MuiButton-root { min-width: 36px; padding: 0 8px; }
+  .tool-button .MuiButton-startIcon { margin: 0; }
+  .map-hint { display: none; }
+}
+@media (max-width: 1023px) {
+  :root { --info-width: 320px; --feature-width: 280px; }
+  .search-box { width: 200px; }
+  .wordmark { font-size: 14px; }
+}

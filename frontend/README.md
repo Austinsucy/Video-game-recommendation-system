@@ -28,6 +28,22 @@ used shell.css to get the class names in order for App.tsx
 - change your directory to ../video-game-recommendation-system/frontend
 - run "npm run build" and then "npm run dev", then enter 'o' and press return/enter
 
+## LAYOUT AND WHERE TO ADD FEATURES (11/2)
+The map fills the page under a slim toolbar. Feature buttons sit on the left, search and Help on the right.
+Clicking a game opens the information panel on the right; feature panels open on the left.
+
+| File | What it does |
+|---|---|
+| `src/App.tsx` | Holds the map data, the selected game and the open feature panel. `selectGame` / `selectAndLocate` are the one selection path for clicks, search and (later) scan and similar games. |
+| `src/components/map/GameMap.tsx` | Cytoscape map with the stored x/y (preset layout). Exposes `zoomIn`, `zoomOut`, `resetView`, `focusGame(id)` and `focus` through a ref. |
+| `src/components/map/mapStyle.ts`, `labelPlacement.ts` | Node and label styling, and which titles get a label (most popular first, no overlaps). |
+| `src/components/toolbar/` | Toolbar and search box. Search currently matches titles already loaded from `map.db`. |
+| `src/components/info/GameInfoPanel.tsx` | GIP 1 panel. Fields with no data yet say "Unavailable". |
+| `src/features/` | One panel per toolbar feature (UDR 1, GV 1, CL 1, SC 1, MCS 1, SI 1, GW 1). Add a button in `features.ts` and a case in `FeaturePanelHost.tsx`. |
+| `src/services/gameService.ts` | Reads `map.db`. `getGameDetails` is where `GET /games/{id}` plugs in. |
+
+To build a feature, replace the disabled controls in its panel and mark it `status="partial"` or remove the `PlannedControls` wrapper.
+
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
