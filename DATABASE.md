@@ -10,14 +10,15 @@ writes into the tables defined here via `pipeline/publish.py`.
 
 ## Setup
 
-Python **3.12** (see `.python-version`). The data libraries have the best wheel
-coverage there, and REL 2 needs all four of us on the same versions.
+Python **3.14** (see `.python-version`). The pinned packages in
+`requirements.txt` are tested on it, and REL 2 needs all four of us on the same
+versions. The full setup, including the website, is in the README.
 
 ```bash
 git clone <repo-url>
 cd <repo>
 
-python3.12 -m venv .venv
+python3.14 -m venv .venv           # Windows: py -3.14 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\Activate.ps1
 
 pip install -r requirements.txt
