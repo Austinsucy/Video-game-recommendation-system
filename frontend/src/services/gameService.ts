@@ -15,19 +15,31 @@ export interface MapGame extends GameSummary {
   genres: string[];
 }
 
-export interface GameDetails extends MapGame {
-  // map.db has no values for these fields. A later backend can supply them.
-  releaseYear: number | null;
-  players: string | null;
-  description: string | null;
-  coverUrl: string | null;
+export interface MapData {
+  version: string;
+  games: MapGame[];
 }
 
-let mapRequest: Promise<MapGame[]> | null = null;
+// The GIP 1 fields. map.db has none of the fields below `MapGame`; they will
+// come from FastAPI GET /games/{id}. Until then they are null or empty and the
+// panel labels them unavailable.
+export interface GameDetails extends MapGame {
+  coverUrl: string | null;
+  releaseYear: number | null;
+  description: string | null;
+  tags: string[];
+  platforms: string[];
+  rating: string | null;
+  averagePlaytimeHours: number | null;
+  storeUrl: string | null;
+  similarGames: GameSummary[];
+}
 
-export function getMapGames(): Promise<MapGame[]> {
+let mapRequest: Promise<MapData> | null = null;
+
+export function getMap(): Promise<MapData> {
   if (!mapRequest) {
-    mapRequest = readMapGames().catch((error: unknown) => {
+    mapRequest = readMap().catch((error: unknown) => {
       mapRequest = null;
       throw error;
     });
@@ -35,8 +47,12 @@ export function getMapGames(): Promise<MapGame[]> {
   return mapRequest;
 }
 
-async function readMapGames(): Promise<MapGame[]> {
+async function readMap(): Promise<MapData> {
   const db = await getMapDatabase();
+  const version = db.exec('SELECT map_version FROM map_info LIMIT 1')[0]?.values[0]?.[0];
+  if (typeof version !== 'string' || !version) {
+    throw new Error('Invalid map data. The map version is missing.');
+  }
   const genreRows = db.exec(`
     SELECT game_id, genre FROM game_genres ORDER BY game_id, genre
   `)[0]?.values ?? [];
@@ -62,7 +78,7 @@ async function readMapGames(): Promise<MapGame[]> {
   const ids = new Set<number>();
 
   // Validate every row before returning the map to React.
-  return rows.map(([id, title, x, y, clusterId, clusterName, color, popularity]) => {
+  const games = rows.map(([id, title, x, y, clusterId, clusterName, color, popularity]) => {
     if (
       typeof id !== 'number' || !Number.isSafeInteger(id) || ids.has(id) ||
       typeof title !== 'string' || !title.trim() ||
@@ -89,18 +105,26 @@ async function readMapGames(): Promise<MapGame[]> {
         genres: genresById.get(id) ?? [],
     };
   });
+  return { version, games };
 }
 
 export async function getGameDetails(id: number): Promise<GameDetails> {
   // These details were already loaded from map.db. Clicking needs no fetch.
-  const games = await getMapGames();
+  // Replace the defaults below with the GET /games/{id} response when the
+  // backend exists, keeping this function's signature.
+  const { games } = await getMap();
   const game = games.find((record) => record.id === id);
   if (!game) throw new Error('This game is not in the map database.');
   return {
     ...game,
-    releaseYear: null,
-    players: null,
-    description: null,
     coverUrl: null,
+    releaseYear: null,
+    description: null,
+    tags: [],
+    platforms: [],
+    rating: null,
+    averagePlaytimeHours: null,
+    storeUrl: null,
+    similarGames: [],
   };
 }
