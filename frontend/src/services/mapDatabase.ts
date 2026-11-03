@@ -1,5 +1,7 @@
 import initSqlJs, { type Database } from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
+// The ML pipeline writes data/map.db. Vite serves it in dev and copies it into the build.
+import mapDatabaseUrl from '../../../data/map.db?url';
 
 // All callers share this promise, including React Strict Mode's initial effects.
 // The database stays in memory until the page is reloaded or closed.
@@ -10,7 +12,7 @@ export function getMapDatabase(): Promise<Database> {
     databaseRequest = (async () => {
       const [SQL, response] = await Promise.all([
         initSqlJs({ locateFile: () => wasmUrl }),
-        fetch(`${import.meta.env.BASE_URL}data/map.db`),
+        fetch(mapDatabaseUrl),
       ]);
       if (!response.ok) throw new Error('The map database could not load.');
       const bytes = new Uint8Array(await response.arrayBuffer());
