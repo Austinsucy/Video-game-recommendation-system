@@ -18,7 +18,7 @@ export default function App() {
     getMapGames()
       .then((data) => { if (!ignore) setGames(data); })
       .catch(() => {
-        if (!ignore) setMapError('The map could not load. Check public/data/map.db, then refresh to retry.');
+        if (!ignore) setMapError('The map could not load. Check data/map.db, then refresh to retry.');
       });
     return () => { ignore = true; };
   }, []);

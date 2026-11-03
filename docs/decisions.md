@@ -165,8 +165,10 @@ Tactics", "Tactical RPG", "RTS", "Shooter", "FPS").
 `config/similar_pairs.yaml` holds 33 pairs: 20 sequel pairs and 13 pairs of
 similar games from different studios (commit `aa9808a`). The team approved
 the list on 2026-11-02. The cross-studio pairs are the ones that separate
-methods. Map v1 has 30 of the 33 pairs (0.91) in each other's top 15, above
-DATA 2's 80% bar (8 of 10).
+methods. Map v1 had 30 of the 33 pairs (0.91) in each other's top 15; map
+v2 has 31 (0.94), above DATA 2's 80% bar (8 of 10).
+`tests/test_data_quality.py::test_data2_similar_pairs_are_in_each_others_top_15`
+checks the published map's stored neighbour lists against that bar.
 
 ## 8. Build published maps with the pinned versions (proposed)
 
