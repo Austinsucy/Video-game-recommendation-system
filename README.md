@@ -199,6 +199,8 @@ Re-importing is only needed after changing the dataset, the selection rule, or t
 
 While a published map exists, the import refuses to run so it cannot invalidate that map. Clearing the published map first is a deliberate team decision; see `DATABASE.md`.
 
+To add a new display column to `games` (one the map does not use), you do not need to re-import: `python -m pipeline.add_columns` adds and fills it while the map stays published. See "Adding a column without re-importing" in `DATABASE.md`.
+
 ### Troubleshooting
 
 | Problem | Fix |
