@@ -29,7 +29,7 @@ from pipeline.vectorize import TagCorpus, load_corpus, vectorize
 REPORT_PATH = ARTIFACTS_DIR / "weight_tuning.md"
 PAIR_K = 15
 WEIGHT_GRID = (0.0, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0)
-N_SEQUEL_PAIRS = 20  # config/similar_pairs.yaml lists the 20 sequel pairs first
+N_SEQUEL_PAIRS = 40  # config/similar_pairs.yaml lists the 40 sequel pairs first
 
 Pairs = list[tuple[int, int]]
 

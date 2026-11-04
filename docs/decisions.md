@@ -16,7 +16,7 @@ Requirement references are to the System Requirements document (10/9/2026).
 | 4 | Vectorization method | Decided; published as map v2 | `votes_max`; map v1 used `votes_log_idf` |
 | 5 | Feature vocabulary | Decided | 15 new features, 64 new aliases |
 | 6 | "Tactical" tag | Decided | Display-only |
-| 7 | Similar-pairs list | Decided | 33 pairs (20 sequels, 13 cross-studio) |
+| 7 | Similar-pairs list | Decided (33) + Proposed (67) | 33 approved pairs (20 sequels, 13 cross-studio); 67 more proposed 2026-11-04 (20 sequels, 47 cross-studio), pending team approval. Map v2 has 89 of 100 as mutual top-15 |
 | 8 | Reproducible builds | Proposed | Build published maps with the pinned `requirements.txt` only |
 
 ## 1. Similarity measure: cosine, 15 neighbours (decided)
