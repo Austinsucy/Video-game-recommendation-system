@@ -24,6 +24,28 @@ class ConfigError(ValueError):
     pass
 
 
+# The ways the importer knows how to pick which games get imported.
+#   popular_recent   games from min_year onward, most reviewed first
+#   popular_pre2019  games up to max_year, most reviewed first
+#   all              everything that passes the minimums, no year filter
+#                    (used by the full-catalogue test build)
+SELECTION_MODES = ("popular_recent", "popular_pre2019", "all")
+
+# Conversions a column in fields.column_sources is allowed to ask for. Each
+# one is a function in pipeline/ingest.py. Listing them here means a typo in
+# the config fails when the config loads, not a minute into an import.
+KNOWN_TRANSFORMS = {
+    "clean_text",
+    "normalise_title",
+    "year_from_date",
+    "iso_date",
+    "join_list",
+    "minutes_to_hours",
+    "json_dump",
+    "store_url_template",
+}
+
+
 class _StrictLoader(yaml.SafeLoader):
     """YAML silently keeps the LAST of two identical keys.
 
@@ -84,9 +106,10 @@ def validate_config(cfg: dict) -> None:
                 f"alias {raw!r} points at {target} which is not in the vocabulary"
             )
 
-    mode = cfg["selection"].get("mode")
-    if mode not in ("popular_recent", "popular_pre2019"):
-        raise ConfigError(f"selection.mode must be popular_recent or popular_pre2019, got {mode!r}")
+    validate_selection(cfg["selection"])
+
+    # Every games column has to say which CSV column it comes from.
+    validate_column_sources(cfg)
 
     if not is_valid_version_id(cfg["map_version"]):
         raise ConfigError(
@@ -195,6 +218,76 @@ def _validate_layout(layout, cluster_count: int) -> None:
         raise ConfigError(
             f"the first {cluster_count} layout.cluster_colors must be distinct #RRGGBB colours"
         )
+
+
+def validate_selection(selection: dict) -> None:
+    """Check the rules for choosing which games get imported."""
+    mode = selection.get("mode")
+    if mode not in SELECTION_MODES:
+        raise ConfigError(
+            f"selection.mode must be one of {sorted(SELECTION_MODES)}, got {mode!r}"
+        )
+
+    # target_count may be null (no limit), but only with mode: all. With the
+    # other modes a null would quietly import the whole 90,000-game catalogue
+    # when someone meant to import 1,000.
+    target = selection.get("target_count")
+    if target is None and mode != "all":
+        raise ConfigError(
+            f"selection.target_count is null, which means no limit. That is only "
+            f"allowed with mode: all, not mode: {mode!r}."
+        )
+    if target is not None and not (_is_int(target) and target >= 1):
+        raise ConfigError(
+            f"selection.target_count must be a positive whole number or null, got {target!r}"
+        )
+
+
+def validate_column_sources(cfg: dict) -> None:
+    """Check fields.column_sources: every column names its CSV source.
+
+    This is the section that answers "where did this value come from?", so a
+    column without a `from:` would be a column nobody can trace.
+    """
+    sources = cfg["fields"].get("column_sources")
+    if not isinstance(sources, dict) or not sources:
+        raise ConfigError("config is missing fields.column_sources")
+
+    for column, spec in sources.items():
+        if not isinstance(spec, dict) or not isinstance(spec.get("from"), str):
+            raise ConfigError(
+                f"fields.column_sources.{column} needs a 'from:' line naming the "
+                "CSV column it reads"
+            )
+        transform = spec.get("transform")
+        if transform is not None and transform not in KNOWN_TRANSFORMS:
+            raise ConfigError(
+                f"fields.column_sources.{column} asks for transform {transform!r}, "
+                f"which does not exist. Known: {sorted(KNOWN_TRANSFORMS)}"
+            )
+
+
+def csv_columns_needed(cfg: dict) -> list[str]:
+    """Exactly which CSV columns the import has to read.
+
+    Built from the config instead of a hardcoded list, so we never load columns
+    we do not use out of a 447 MB file, and a new mapping in the config just
+    works with no code change. Sorted so the order is the same every run.
+    """
+    needed: set[str] = set()
+    for spec in cfg["fields"]["column_sources"].values():
+        needed.add(spec["from"])
+        if spec.get("fallback"):
+            needed.add(spec["fallback"])
+
+    # The column we sort by when picking the top N games.
+    needed.add(cfg["selection"]["rank_by"])
+
+    # The feature matching needs these. They are not in column_sources because
+    # they feed the features tables, not a single `games` column.
+    needed.update(["appid", "release_date", "genres", "categories", "tags",
+                   "windows", "mac", "linux"])
+    return sorted(needed)
 
 
 def alias_lookup(cfg: dict) -> dict[str, tuple[str, str]]:
