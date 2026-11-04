@@ -2,6 +2,37 @@
 
 CSCI 150, Interactive Map of Video Games.
 
+> **This is the `test/full-90k-database` branch.** It imports the entire Steam
+> catalogue, all 89,618 games, instead of the 1,000-game map dataset, so we can
+> see what the full data looks like. Do not merge it into `main`.
+>
+> How it differs from `main`:
+>
+> * `selection.mode` is `all`, `target_count` is `null`, and `min_genres` and
+>   `min_tags` are `0`, so nothing is filtered out. The vocabulary and aliases
+>   are the team's, the same as `main`.
+> * `data/games.db` is not committed. The full build is about 330 MB, over
+>   GitHub's 100 MB file limit. Build it yourself: `python -m pipeline.create_tables`
+>   then `python -m pipeline.ingest`. It takes under two minutes and about 1 GB of
+>   memory.
+> * There is no published map in this database, and none can be built from it:
+>   CON 3 caps a map at 1,100 games. `data/map.db` is still `main`'s v2 file, so
+>   the website runs as before.
+> * Three tests behave differently, each saying why: the DATA 1 gate skips
+>   (its minimums are off here), the real-database map build skips (over the
+>   CON 3 cap), and the vectorizer smoke test checks unit length only for games
+>   that have tags, because about 17,000 games in the full catalogue have none.
+>
+> What the full build showed, worth reading before the next dataset decision:
+>
+> * 16,872 games (18.8%) have no Steam tags at all in this snapshot, including
+>   very popular ones such as Overwatch 2, Marvel Rivals, THE FINALS and Metro
+>   Exodus. `main`'s `min_tags: 3` rule drops them, so they are not on the map.
+> * 87,301 games (97.4%) would pass DATA 1.
+> * 890 normalised titles appear more than once, against 0 in the 1,000-game build.
+> * Search stays fast: an indexed title lookup takes under 1 ms, a substring
+>   search about 60 ms.
+
 This file covers the database and the import process, which Ronnie owns. The ML
 pipeline (coordinates, clusters, feature vectors and neighbors) belongs to Austin
 and Kayne, and writes into the tables defined here through `pipeline/publish.py`.

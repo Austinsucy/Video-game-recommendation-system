@@ -203,10 +203,17 @@ def test_real_database_smoke():
     assert len(corpus.titles) == len(corpus.descriptions) == n_games
     assert list(corpus.tags) == sorted(corpus.tags)
     params = vectorization_params(load_config())
+    # test/full-90k-database only: with min_tags: 0 the full catalogue includes
+    # about 17,000 games whose Steam data has no tags at all. They get an
+    # all-zero vector, which cannot be scaled to length 1. So check unit length
+    # for every game that HAS tags, and check the tagless ones are exactly zero.
+    has_tags = corpus.present.any(axis=1)
     for method in CORE_METHODS:
         vectors = vectorize(corpus, method, params)
         assert vectors.shape == (n_games, n_tags)
-        np.testing.assert_allclose(np.linalg.norm(vectors, axis=1), 1.0)
+        norms = np.linalg.norm(vectors, axis=1)
+        np.testing.assert_allclose(norms[has_tags], 1.0)
+        assert np.all(norms[~has_tags] == 0)
         assert np.all(vectors[~corpus.present] == 0)
 
     vectors = vectorize(corpus, "category_weighted", params)

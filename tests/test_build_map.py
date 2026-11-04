@@ -176,6 +176,14 @@ def test_clusters_separate_groups_that_the_2d_layout_merges():
 def test_real_database_dry_build_validates():
     cfg = load_config()
     corpus = load_corpus(DB_PATH, alias_lookup(load_config()))
+    # test/full-90k-database only: the full catalogue is far over the CON 3 cap,
+    # so a map built from it could never pass publish.validate, and comparing
+    # every pair of ~90,000 games would not fit in memory. Skip with the reason.
+    if len(corpus.game_ids) > publish.MAX_GAMES:
+        pytest.skip(
+            f"{len(corpus.game_ids):,} games is over the {publish.MAX_GAMES:,}-game "
+            "CON 3 cap, so no publishable map can be built from this database"
+        )
     build = build_map(corpus, cfg)
     publish.validate(
         build.clusters, build.positions, build.neighbors, set(corpus.game_ids.tolist())

@@ -47,17 +47,21 @@ dataset:
   store_url_template: "https://store.steampowered.com/app/{appid}/"
 
 selection:
-  target_count: 1000                  # CON 3 caps the published map at 1100
+  # How many games to keep. null means no limit, which is only allowed with
+  # mode: all.
+  target_count: null
 
-  # HOW WE CHOOSE THE 1000
-  #   popular_recent   newest years first, most reviewed  <- what we use now
+  # HOW WE CHOOSE WHICH GAMES
+  #   popular_recent   newest years first, most reviewed  <- what main uses
   #   popular_pre2019  only <= max_year, most reviewed    <- what CON 3 says
+  #   all              every game that passes the minimums, no year filter
   #
-  # HEADS UP: these two disagree with each other. CON 3 in the NFR document
-  # says the map is "approximately 1,000 mostly pre-2019 games", but we are
-  # currently building from 2019 onward. Changing this one word and re-running
-  # the import switches it. Still needs a team decision.
-  mode: "popular_recent"
+  # THIS BRANCH USES `all` ON PURPOSE. It is a test build of the entire Steam
+  # catalogue, 89,618 games, so we can see what the full dataset looks like.
+  # It is NOT the map dataset: CON 3 caps a published map at 1,100 games, and
+  # the database file it makes is too big to commit. See DATABASE.md.
+  # The real build, on main, uses popular_recent with target_count: 1000.
+  mode: "all"
 
   max_year: 2018                      # only used by popular_pre2019
   min_year: 2019                      # only used by popular_recent
@@ -73,8 +77,12 @@ selection:
   tie_breaker: "title"
 
   # DATA 1 minimums. A game needs at least this much information or we skip it.
-  min_genres: 1
-  min_tags: 3
+  # Set to 0 on this branch so nothing is filtered out and we really do get the
+  # whole catalogue. main uses 1 and 3, which is what DATA 1 asks for. With
+  # these at 0 the DATA 1 test skips, because this import did not apply that
+  # gate, and prints the completeness number instead.
+  min_genres: 0
+  min_tags: 0
 
   # Steam's "genres" column includes things that are not games at all
   # (Accounting, Utilities, Audio Production). Listing them here drops those
