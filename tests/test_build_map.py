@@ -213,3 +213,27 @@ def test_tsne_layout_is_reproducible():
     vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
     layout = {"method": "tsne", "coordinate_extent": 1000.0, "tsne_perplexity": 15}
     np.testing.assert_array_equal(layout_2d(vectors, layout, seed=42), layout_2d(vectors, layout, seed=42))
+
+
+def test_points_exactly_min_distance_apart_are_not_close():
+    coords = np.array([[0.0, 0.0], [1.0, 0.0], [2.5, 0.0]])
+    out, moved = separate_collisions(coords, np.array([1, 2, 3]), 1.0)
+    assert moved == 0
+    np.testing.assert_array_equal(out, coords)
+
+
+def test_a_chain_of_close_points_is_one_group():
+    coords = np.array([[0.0, 0.0], [0.9, 0.0], [1.8, 0.0], [50.0, 0.0]])
+    out, moved = separate_collisions(coords, np.array([1, 2, 3, 4]), 1.0)
+    assert moved == 3
+    np.testing.assert_array_equal(out[3], coords[3])
+    assert min(math.dist(out[i], out[j]) for i in range(3) for j in range(i + 1, 3)) >= 1.0
+
+
+def test_neighbours_kept_on_map_counts_the_true_neighbours_among_the_closest_points():
+    vectors = np.array([[1.0, 0], [0.99, 0.1], [0, 1.0], [0.1, 0.99]])
+    vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+    together = np.array([[0.0, 0], [1, 0], [10, 10], [11, 10]])
+    apart = np.array([[0.0, 0], [10, 10], [1, 0], [11, 10]])
+    assert neighbors_kept_on_map(together, vectors, 1) == 1.0
+    assert neighbors_kept_on_map(apart, vectors, 1) == 0.0

@@ -27,6 +27,7 @@ from pathlib import Path
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
+from scipy.spatial import cKDTree
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
@@ -117,19 +118,29 @@ def layout_2d(vectors: np.ndarray, layout: dict, seed: int) -> np.ndarray:
 
 def neighbors_kept_on_map(coords: np.ndarray, vectors: np.ndarray, k: int) -> float:
     """Mean share of each game's k cosine neighbours that are among its k closest map points."""
-    diff = coords[:, None, :] - coords[None, :, :]
-    dist = np.hypot(diff[..., 0], diff[..., 1])
-    np.fill_diagonal(dist, np.inf)
-    on_map = np.argsort(dist, axis=1, kind="stable")[:, :k]
+    _, nearest = cKDTree(coords).query(coords, k=k + 1)
+    on_map = [row[row != i][:k] for i, row in enumerate(nearest)]  # a duplicate point can push self out of column 0
     true = neighbor_indices(vectors, k)
     return float(np.mean([len(set(a) & set(b)) / k for a, b in zip(on_map, true)]))
 
 
-def _min_pairwise_distance(coords: np.ndarray) -> float:
-    diff = coords[:, None, :] - coords[None, :, :]
-    dist = np.hypot(diff[..., 0], diff[..., 1])
-    np.fill_diagonal(dist, np.inf)
-    return float(dist.min()) if len(coords) > 1 else float("inf")
+def _closest_pair_distance(coords: np.ndarray) -> float:
+    if len(coords) < 2:
+        return float("inf")
+    _, nearest = cKDTree(coords).query(coords, k=2)
+    other = np.array([row[row != i][0] for i, row in enumerate(nearest)])
+    return float(np.hypot(*(coords - coords[other]).T).min())
+
+
+def _close_groups(coords: np.ndarray, min_distance: float) -> np.ndarray:
+    """Component label per point; points are joined when strictly closer than `min_distance`."""
+    n = len(coords)
+    # cKDTree counts a pair at exactly the radius as close, so widen it and filter with hypot.
+    pairs = cKDTree(coords).query_pairs(min_distance * (1 + 1e-9), output_type="ndarray")
+    gap = np.hypot(*(coords[pairs[:, 0]] - coords[pairs[:, 1]]).T)
+    pairs = pairs[gap < min_distance]
+    close = csr_matrix((np.ones(len(pairs), dtype=bool), (pairs[:, 0], pairs[:, 1])), shape=(n, n))
+    return connected_components(close, directed=False)[1]
 
 
 def separate_collisions(
@@ -150,15 +161,14 @@ def separate_collisions(
     out = coords.copy()
     moved: set[int] = set()
     for _ in range(MAX_SEPARATION_PASSES):
-        diff = out[:, None, :] - out[None, :, :]
-        close = np.hypot(diff[..., 0], diff[..., 1]) < min_distance
-        _, group = connected_components(csr_matrix(close), directed=False)
+        group = _close_groups(out, min_distance)
+        by_group = np.argsort(group, kind="stable")
+        sizes = np.bincount(group)
+        bounds = np.concatenate([[0], np.cumsum(sizes)])
         placed = out.copy()
         changed = False
-        for g in np.unique(group):
-            members = np.flatnonzero(group == g)
-            if len(members) < 2:
-                continue
+        for g in np.flatnonzero(sizes >= 2):
+            members = by_group[bounds[g] : bounds[g + 1]]  # ascending row index, as flatnonzero gave
             members = members[np.argsort(game_ids[members], kind="stable")]
             centre = out[members].mean(axis=0)
             # Chord between ring neighbours is 2 r sin(pi/k); the factor adds float margin.
@@ -174,7 +184,7 @@ def separate_collisions(
         raise RuntimeError(
             f"collision separation did not settle in {MAX_SEPARATION_PASSES} passes"
         )
-    closest = _min_pairwise_distance(out)
+    closest = _closest_pair_distance(out)
     if closest < min_distance:
         raise RuntimeError(
             f"collision separation left two games {closest:.6g} apart, "
@@ -201,15 +211,11 @@ def cluster_rows(n_clusters: int, colors: list[str]) -> list[dict]:
     ]
 
 
-def build_map(corpus: TagCorpus, cfg: dict) -> MapBuild:
-    vec_cfg, layout = cfg["vectorization"], cfg["layout"]
+def build_map_from_vectors(vectors: np.ndarray, game_ids: np.ndarray, cfg: dict) -> MapBuild:
+    layout = cfg["layout"]
     seed, n_clusters = cfg["random_seed"], cfg["cluster_count"]
-    vectors = vectorize(corpus, vec_cfg["method"], vectorization_params(cfg))
-
     coords = layout_2d(vectors, layout, seed)
-    coords, moved = separate_collisions(
-        coords, corpus.game_ids, layout["collision_min_distance"]
-    )
+    coords, moved = separate_collisions(coords, game_ids, layout["collision_min_distance"])
     labels = assign_clusters(vectors, n_clusters, cfg["kmeans_n_init"], seed)
     positions = [
         {
@@ -218,17 +224,22 @@ def build_map(corpus: TagCorpus, cfg: dict) -> MapBuild:
             "y": float(y),
             "cluster_id": int(label),
         }
-        for gid, (x, y), label in zip(corpus.game_ids, coords, labels)
+        for gid, (x, y), label in zip(game_ids, coords, labels)
     ]
     return MapBuild(
         clusters=cluster_rows(n_clusters, layout["cluster_colors"]),
         positions=positions,
-        neighbors=nearest_neighbors(vectors, corpus.game_ids, layout["neighbor_count"]),
+        neighbors=nearest_neighbors(vectors, game_ids, layout["neighbor_count"]),
         layout_method=layout["method"],
         neighbors_kept_on_map=neighbors_kept_on_map(coords, vectors, layout["neighbor_count"]),
         cluster_sizes=tuple(int(c) for c in np.bincount(labels, minlength=n_clusters)),
         collisions_moved=moved,
     )
+
+
+def build_map(corpus: TagCorpus, cfg: dict) -> MapBuild:
+    vectors = vectorize(corpus, cfg["vectorization"]["method"], vectorization_params(cfg))
+    return build_map_from_vectors(vectors, corpus.game_ids, cfg)
 
 
 def corpus_hash(corpus: TagCorpus) -> str:
@@ -288,7 +299,7 @@ def main(argv: list[str] | None = None) -> None:
             f"WARNING: map version {version!r} already exists; "
             "--publish would refuse it. Use a new --version-id or map_version."
         )
-    corpus = load_corpus(DB_PATH, alias_lookup(cfg))
+    corpus = load_corpus(DB_PATH, alias_lookup(cfg), cfg["vectorization"].get("text_field", "description"))
     build = build_map(corpus, cfg)
     publish.validate(
         build.clusters, build.positions, build.neighbors, set(corpus.game_ids.tolist())
