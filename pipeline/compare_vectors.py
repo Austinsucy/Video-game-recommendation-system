@@ -62,8 +62,16 @@ def read_pair_titles(path: Path = PAIRS_PATH) -> list[tuple[str, str]]:
 def resolve_pairs(
     corpus: TagCorpus, titles: list[tuple[str, str]]
 ) -> tuple[list[tuple[int, int]], list[str]]:
-    """Row-index pairs for the titles present, plus the titles that are not."""
-    row_of = {title: i for i, title in enumerate(corpus.titles)}
+    """Row-index pairs for the titles present, plus the titles that are not.
+
+    A duplicated title (store editions, bundles) resolves to the listing with
+    the most tag votes, then the lowest game_id.
+    """
+    row_of: dict[str, int] = {}
+    for i, title in enumerate(corpus.titles):
+        # rows ascend by game_id, so a strict > keeps the lowest game_id on a tie
+        if title not in row_of or corpus.votes[i].sum() > corpus.votes[row_of[title]].sum():
+            row_of[title] = i
     pairs, missing = [], []
     for a, b in titles:
         absent = [t for t in (a, b) if t not in row_of]
@@ -245,7 +253,7 @@ def main(argv: list[str] | None = None) -> None:
     cfg = load_config()
     params = vectorization_params(cfg)
     methods, notes = (args.methods, ["Methods chosen with --methods."]) if args.methods else default_methods()
-    corpus = load_corpus(DB_PATH, alias_lookup(cfg))
+    corpus = load_corpus(DB_PATH, alias_lookup(cfg), cfg["vectorization"].get("text_field", "description"))
     matrices = {m: vectorize(corpus, m, params) for m in methods}
     save_vectors(corpus, matrices)
     neighbors = {m: neighbor_indices(v, PAIR_K) for m, v in matrices.items()}
