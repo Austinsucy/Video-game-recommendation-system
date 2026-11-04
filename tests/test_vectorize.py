@@ -1,6 +1,9 @@
 """Behaviour of the tag vectorization methods (REL 2, MAINT 2)."""
 import dataclasses
 import sqlite3
+import sys
+import types
+import zlib
 
 import numpy as np
 import pytest
@@ -11,10 +14,14 @@ from pipeline.vectorize import (
     EMBEDDING_METHODS,
     FEATURE_METHODS,
     METHODS,
+    SIMILARITY_DECIMALS,
+    TEXT_METHODS,
     CuratedFeatures,
     TagCorpus,
     feature_strengths,
+    _embed,
     load_corpus,
+    neighbor_indices,
     vectorize,
 )
 from tests.conftest import no_features, order_from_votes
@@ -347,3 +354,132 @@ def test_curated_features_reject_mismatched_shapes():
         CuratedFeatures(np.zeros(3), (), ())
     with pytest.raises(ValueError):
         CuratedFeatures(np.zeros((2, 2)), ("genre", "genre"), ("action",))
+
+
+# --- text methods, blocked neighbours ---------------------------------------
+
+def fake_embed(texts, params):
+    """Deterministic stand-in for the sentence model: unit rows, equal texts equal rows."""
+    rows = []
+    for text in texts:
+        v = np.random.default_rng(zlib.crc32(text.encode())).normal(size=6)
+        rows.append(v / np.linalg.norm(v))
+    return np.array(rows)
+
+
+@pytest.fixture
+def texted(corpus, monkeypatch) -> TagCorpus:
+    monkeypatch.setattr("pipeline.vectorize._embed", fake_embed)
+    return dataclasses.replace(
+        corpus, descriptions=["a space shooter", "puzzles in space", "an rpg quest", ""]
+    )
+
+
+def unit_rows(m: np.ndarray) -> np.ndarray:
+    n = np.linalg.norm(m, axis=1, keepdims=True)
+    return m / np.where(n > 0, n, 1.0)
+
+
+@pytest.mark.parametrize("method", ["hybrid_max", "semantic", "hybrid_semantic"])
+def test_text_methods_are_unit_or_zero_and_deterministic(texted, method):
+    first = vectorize(texted, method, PARAMS)
+    norms = np.linalg.norm(first, axis=1)
+    assert np.all(np.isclose(norms, 1) | (norms == 0))
+    np.testing.assert_array_equal(first, vectorize(texted, method, PARAMS))
+
+
+def test_semantic_is_zero_for_a_blank_text_and_the_embedding_otherwise(texted):
+    vectors = vectorize(texted, "semantic", PARAMS)
+    assert not vectors[3].any()
+    np.testing.assert_allclose(vectors[:3], fake_embed(texted.descriptions[:3], PARAMS))
+
+
+def test_hybrid_max_differs_from_hybrid_embed_only_in_the_tag_half(texted):
+    a = PARAMS["hybrid_alpha"]
+    expected = unit_rows(
+        a * METHODS["votes_max"](texted, PARAMS)
+        + (1 - a) * METHODS["desc_embed"](texted, PARAMS)
+    )
+    np.testing.assert_allclose(vectorize(texted, "hybrid_max", PARAMS), expected)
+    swapped = unit_rows(
+        a * METHODS["votes_log"](texted, PARAMS) + (1 - a) * METHODS["desc_embed"](texted, PARAMS)
+    )
+    np.testing.assert_allclose(vectorize(texted, "hybrid_embed", PARAMS), swapped)
+
+
+def test_hybrid_semantic_cosine_blends_tag_and_text_cosine(texted):
+    a = PARAMS["hybrid_alpha"]
+    hybrid = vectorize(texted, "hybrid_semantic", PARAMS)
+    tag = vectorize(texted, "votes_max", PARAMS)
+    text = vectorize(texted, "semantic", PARAMS)
+    expected = a * tag[0] @ tag[1] + (1 - a) * text[0] @ text[1]
+    assert hybrid[0] @ hybrid[1] == pytest.approx(expected)
+
+
+def test_hybrid_semantic_keeps_a_game_with_a_blank_text_on_its_tags(texted):
+    vectors = vectorize(texted, "hybrid_semantic", PARAMS)
+    assert np.linalg.norm(vectors[3]) == pytest.approx(1)
+    assert not vectors[3, texted.votes.shape[1]:].any()
+
+
+def test_text_methods_are_marked_as_embedding_methods():
+    assert TEXT_METHODS <= EMBEDDING_METHODS
+    assert "hybrid_max" in EMBEDDING_METHODS
+
+
+def test_embedding_cache_key_ignores_cpu_but_not_other_devices(tmp_path, monkeypatch):
+    calls = []
+
+    class Model:
+        def __init__(self, name, revision, device):
+            calls.append(device)
+
+        def encode(self, texts, **kwargs):
+            return fake_embed(texts, {})
+
+    monkeypatch.setitem(sys.modules, "sentence_transformers", types.SimpleNamespace(SentenceTransformer=Model))
+    base = {**PARAMS, "embedding_cache_dir": tmp_path}
+    _embed(["x"], base)
+    _embed(["x"], {**base, "embedding_device": "cpu"})
+    assert calls == ["cpu"]
+    _embed(["x"], {**base, "embedding_device": "cuda"})
+    assert calls == ["cpu", "cuda"]
+    assert len(list(tmp_path.glob("*.npy"))) == 2
+
+
+def make_text_db(path, rows):
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        "CREATE TABLE games (game_id INTEGER, title TEXT, description TEXT, long_description TEXT, raw_tags_json TEXT);"
+        "CREATE TABLE features (feature_id INTEGER, category TEXT, name TEXT);"
+        "CREATE TABLE game_features (game_id INTEGER, feature_id INTEGER);"
+    )
+    conn.executemany("INSERT INTO games VALUES (?, ?, ?, ?, '{}')", rows)
+    conn.commit()
+    conn.close()
+
+
+def test_long_description_text_field_falls_back_to_the_short_description(tmp_path):
+    db = tmp_path / "g.db"
+    make_text_db(db, [(1, "A", "short a", "long a"), (2, "B", "short b", None), (3, "C", "short c", "  "), (4, "D", None, None)])
+    assert load_corpus(db, {}).descriptions == ["short a", "short b", "short c", ""]
+    assert load_corpus(db, {}, "long_description").descriptions == ["long a", "short b", "short c", ""]
+
+
+def dense_neighbor_indices(vectors, k):
+    sim = np.round(vectors @ vectors.T, SIMILARITY_DECIMALS)
+    np.fill_diagonal(sim, -np.inf)
+    return np.argsort(-sim, axis=1, kind="stable")[:, :k]
+
+
+@pytest.mark.parametrize("k", [1, 5, 15])
+@pytest.mark.parametrize("block_size", [7, 40])
+def test_blocked_neighbours_match_the_dense_search_with_ties_and_duplicates(k, block_size):
+    rng = np.random.default_rng(3)
+    base = rng.integers(0, 3, size=(30, 4)).astype(float)  # few distinct values, so exact ties
+    base[base.sum(axis=1) == 0, 0] = 1
+    vectors = np.vstack([base, base[:10], rng.normal(size=(20, 4)) + 3])  # duplicate rows
+    vectors = vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
+    np.testing.assert_array_equal(
+        neighbor_indices(vectors, k, block_size=block_size), dense_neighbor_indices(vectors, k)
+    )

@@ -187,6 +187,10 @@ def _validate_vectorization(vec) -> None:
     template = vec.get("embedding_tag_template")
     if not (isinstance(template, str) and "{tag}" in template):
         raise ConfigError("vectorization.embedding_tag_template must contain {tag}")
+    if vec.get("text_field", "description") not in ("description", "long_description"):
+        raise ConfigError("vectorization.text_field must be description or long_description")
+    if not isinstance(vec.get("embedding_device", "cpu"), str):
+        raise ConfigError("vectorization.embedding_device must be a string")
 
 
 def _validate_layout(layout, cluster_count: int) -> None:

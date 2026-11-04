@@ -296,6 +296,8 @@ vectorization:
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
   embedding_revision: "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"   # pinned Hugging Face commit (REL 2)
   embedding_tag_template: "a video game tagged {tag}"
+  text_field: "long_description"   # text the description methods embed; falls back to description when blank. votes_max ignores text
+  embedding_device: "cpu"          # published maps are CPU-built (REL 2); "cuda" is for lab runs only
 
 # -----------------------------------------------------------------------------
 # Map layout (pipeline/build_map.py). cluster_count and random_seed are above.

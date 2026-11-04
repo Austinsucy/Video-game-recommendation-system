@@ -164,7 +164,7 @@ def main(argv: list[str] | None = None) -> None:
 
     cfg = load_config()
     params = vectorization_params(cfg)
-    corpus = load_corpus(DB_PATH, alias_lookup(cfg))
+    corpus = load_corpus(DB_PATH, alias_lookup(cfg), cfg["vectorization"].get("text_field", "description"))
     titles = read_pair_titles()
     pairs, missing = resolve_pairs(corpus, titles)
     if missing:
