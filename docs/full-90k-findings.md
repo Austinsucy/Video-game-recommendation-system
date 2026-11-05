@@ -51,10 +51,10 @@ database from the step above:
 python -m pipeline.vector_lab --small <1k games.db> --full <90k games.db> --device cuda
 ```
 
-This writes `data/artifacts/vector_lab/`: `index.html` (the page, from
-`pipeline/vector_lab.html`), `meta.json` with every score, one compressed
-data file per build and method, and `shared.bin.gz.b64.txt` with the game list. Serve the folder over HTTP to view it. On an
-RTX 5080 the full run takes about 40 minutes, most of it t-SNE on the 90k
+This writes `data/artifacts/vector_lab/`: `meta.json` with every score, one
+compressed data file per build and method, and `shared.bin.gz.b64.txt` with the
+game list. The viewer page is not in the repo. Pass it with `--page` to copy it
+in as `index.html`, then serve the folder over HTTP to view it. On an RTX 5080 the full run takes about 40 minutes, most of it t-SNE on the 90k
 maps. `--device` defaults to `vectorization.embedding_device` (`cpu`).
 
 The export always runs the six methods below on both builds. Each build is

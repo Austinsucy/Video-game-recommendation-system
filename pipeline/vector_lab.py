@@ -2,7 +2,7 @@
 
     python -m pipeline.vector_lab --small PATH --full PATH \\
         [--text-field description|long_description] [--device cpu|cuda] \\
-        [--out data/artifacts/vector_lab]
+        [--out data/artifacts/vector_lab] [--page vector_lab.html]
 
 --small is the 1,000-game database (build "1k") and --full the whole catalogue
 (build "90k"). The full database is the universe: every game of the small one
@@ -18,7 +18,7 @@ Shape of the data:
     Run     one (build, method): the rows that have a vector, top-10 neighbours
             and their similarity, map coordinates, cluster, top tags
     output  meta.json, one `m_<build>_<method>.bin.gz.b64.txt` per run, a shared
-            `shared.bin.gz.b64.txt`, and index.html (the viewer)
+            `shared.bin.gz.b64.txt`, and index.html if --page names the viewer page
 Each .bin is named, 8-byte-aligned arrays; meta.json gives each array's dtype,
 offset and length. gzip uses mtime 0, so equal inputs give equal bytes.
 """
@@ -46,7 +46,6 @@ DEFAULT_METHODS = ["votes_max", "desc_embed", "hybrid_embed", "hybrid_max", "sem
 SHOW_K, TOP_TAGS, RAW_TAGS = 10, 6, 10
 NO_TAG = 65535
 SMALL_LABEL, FULL_LABEL = "1k", "90k"
-VIEWER = Path(__file__).with_name("vector_lab.html")
 
 
 @dataclass(frozen=True)
@@ -255,10 +254,9 @@ def write_lab(
         name = "m_" + key.replace(":", "_") + ".bin.gz.b64.txt"
         meta["methods"][key] = {**scores[key], "file": name, "layout": write_bin(out / name, arrays)}
     (out / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    shutil.copyfile(VIEWER, out / "index.html")
 
 
-def build_lab(small: Path, full: Path, out: Path, cfg: dict, log=print) -> list[Run]:
+def build_lab(small: Path, full: Path, out: Path, cfg: dict, page: Path | None = None, log=print) -> list[Run]:
     t0 = time.time()
     loaded = [load_build(SMALL_LABEL, small, cfg), load_build(FULL_LABEL, full, cfg)]
     universe = loaded[-1]
@@ -280,6 +278,8 @@ def build_lab(small: Path, full: Path, out: Path, cfg: dict, log=print) -> list[
             )
             runs.append(r)
     write_lab(out, loaded, runs, to_universe, cfg)
+    if page:
+        shutil.copyfile(page, out / "index.html")
     log(f"[{time.time() - t0:7.1f}s] wrote {out}")
     return runs
 
@@ -292,13 +292,16 @@ def main(argv: list[str] | None = None) -> None:
                         help="text the description methods embed, for this run only")
     parser.add_argument("--device", choices=EMBEDDING_DEVICES, help="embedding device for this run only; overrides vectorization.embedding_device")
     parser.add_argument("--out", type=Path, default=ARTIFACTS_DIR / "vector_lab")
+    parser.add_argument("--page", type=Path, help="viewer page to copy in as index.html; it is not in the repo")
     args = parser.parse_args(argv)
 
     cfg = load_config()
     cfg["vectorization"]["text_field"] = args.text_field
     if args.device:
         cfg["vectorization"]["embedding_device"] = args.device
-    build_lab(args.small, args.full, args.out, cfg)
+    if args.page and not args.page.is_file():
+        parser.error(f"--page {args.page} does not exist")
+    build_lab(args.small, args.full, args.out, cfg, args.page)
 
 
 if __name__ == "__main__":

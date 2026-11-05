@@ -66,16 +66,17 @@ def decode(out, layout, file):
     }
 
 
-def run_lab(dbs, cfg, out):
-    return build_lab(**dbs, out=out, cfg=cfg, log=lambda _: None)
+def run_lab(dbs, cfg, out, page=None):
+    return build_lab(**dbs, out=out, cfg=cfg, page=page, log=lambda _: None)
 
 
 def test_output_decodes_with_the_declared_lengths(dbs, cfg, tmp_path):
-    out = tmp_path / "lab"
-    run_lab(dbs, cfg, out)
+    out, page = tmp_path / "lab", tmp_path / "viewer.html"
+    page.write_text("<!DOCTYPE html>viewer")
+    run_lab(dbs, cfg, out, page)
     meta = json.loads((out / "meta.json").read_text())
     assert meta["methodOrder"] == [f"{b}:{m}" for b in ("1k", "90k") for m in DEFAULT_METHODS]
-    assert (out / "index.html").read_text().startswith("<!DOCTYPE html>")
+    assert (out / "index.html").read_text() == "<!DOCTYPE html>viewer"
 
     shared = decode(out, meta["shared"], meta["sharedFile"])
     assert len(shared["rawIdx"]) == N_BIG * meta["rawK"]
@@ -163,7 +164,7 @@ def test_cli_wants_both_databases(tmp_path):
 
 def test_cli_text_field_overrides_the_config_for_the_run(dbs, tmp_path, monkeypatch):
     seen = {}
-    monkeypatch.setattr("pipeline.vector_lab.build_lab", lambda small, full, out, cfg: seen.update(cfg["vectorization"]))
+    monkeypatch.setattr("pipeline.vector_lab.build_lab", lambda small, full, out, cfg, page: seen.update(cfg["vectorization"]))
     main(["--small", "a.db", "--full", "b.db", "--out", str(tmp_path)])
     assert seen["text_field"] == "long_description"
     main(["--small", "a.db", "--full", "b.db", "--text-field", "description", "--device", "cpu"])
