@@ -52,13 +52,14 @@ python -m pipeline.vector_lab --small <1k games.db> --full <90k games.db> --devi
 ```
 
 This writes `data/artifacts/vector_lab/`: `index.html` (the page, from
-`pipeline/vector_lab.html`), `meta.json` with every score, and one compressed
-data file per build and method. Serve the folder over HTTP to view it. On an
+`pipeline/vector_lab.html`), `meta.json` with every score, one compressed
+data file per build and method, and `shared.bin.gz.b64.txt` with the game list. Serve the folder over HTTP to view it. On an
 RTX 5080 the full run takes about 37 minutes, most of it t-SNE on the 90k
 maps. `--device` defaults to `vectorization.embedding_device` (`cpu`).
 
-The export always runs the six methods below on both builds, with the 90k
-database as the game list for both. It scores pairs against
+The export always runs the six methods below on both builds. Each build is
+vectorised from its own database. The 90k database supplies the shared game
+list and titles that the page uses to line the two builds up. It scores pairs against
 `config/similar_pairs.yaml`.
 
 ## What was run
@@ -69,7 +70,7 @@ for each build and method, with `config/map_config.yaml` unchanged except:
 | Setting | Lab | Published map | Why |
 |---|---|---|---|
 | Text for embeddings | `long_description`, falling back to `description` per game (`--text-field`) | `description` | The richer text was the point of the test |
-| Embedding device | GPU (`--device cuda`) | CPU | 89,618 descriptions in 49 s on an RTX 5080. `build_map --publish` refuses a non-CPU device (REL 2) |
+| Embedding device | GPU (`--device cuda`) | CPU | 89,618 descriptions in 49 s on an RTX 5080. `build_map --publish` refuses a non-CPU device for an embedding method (REL 2) |
 | Collision spreading | 1k only | Yes | The minimum spacing cannot be met at 90k density, so maps over the CON 3 cap skip it |
 
 Everything else is the pipeline's normal path. Neighbours are exact cosine
@@ -93,8 +94,8 @@ published map.
 
 ## Methods compared
 
-All six are methods in `pipeline/vectorize.py`, so `build_map --method` and
-`compare_vectors` can use them too.
+All six are methods in `pipeline/vectorize.py`, so `vectorization.method` in the
+config and `compare_vectors --methods` can use them too.
 
 | Method | Weight of each tag the game has | Tagless games |
 |---|---|---|
@@ -204,6 +205,10 @@ so the data has no natural cluster count. Clusters are more stable across
 seeds than at 1k (ARI 0.71 to 0.88, against 0.59 to 0.81). At k = 40 the
 clusters become specific: party RPGs, roguelites, atmospheric
 puzzle-platformers, local-multiplayer party games.
+
+These numbers come from a one-off script outside the repo that ran
+`assign_clusters` and scikit-learn's `silhouette_score` and
+`adjusted_rand_score` on the `votes_max` vectors.
 
 ## Open questions for the team
 

@@ -183,5 +183,10 @@ Lab page despite identical input. Reruns on one machine are identical, and
 the CPU thread count makes no difference. `votes_log_idf` has no ties and
 matched exactly.
 
+K-Means is different: with several threads its labels can change between runs
+on the same vectors (seen on 89,500 games in the full-catalogue experiment,
+`docs/full-90k-findings.md`). `assign_clusters` therefore runs K-Means on one
+OpenMP thread.
+
 Proposal: build every published map version from a clean environment with the
 pinned `requirements.txt`, and prefer methods without distance ties (REL 2).
