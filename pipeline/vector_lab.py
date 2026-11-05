@@ -1,15 +1,18 @@
 """Build the data behind the Tag Vector Lab page from pipeline output (GM 1, REL 2).
 
-    python -m pipeline.vector_lab --build 1k=PATH --build 90k=PATH \\
-        [--methods votes_max ...] [--device cpu|cuda] [--out data/artifacts/vector_lab]
+    python -m pipeline.vector_lab --small PATH --full PATH \\
+        [--text-field description|long_description] [--device cpu|cuda] \\
+        [--out data/artifacts/vector_lab]
 
-Each --build is a games database. The last one is the universe: every game of
-every other build is found in it by store_url, and all neighbour lists in the
-output use its row numbers. For each build and method the full corpus is
-vectorized, games with no vector are left out, and the map is built by
+--small is the 1,000-game database (build "1k") and --full the whole catalogue
+(build "90k"). The full database is the universe: every game of the small one
+is found in it by store_url, and all neighbour lists in the output use its row
+numbers. For each build, every method in DEFAULT_METHODS vectorizes the full
+corpus, games with no vector are left out, and the map is built by
 pipeline.build_map, so the lab shows exactly what the pipeline produces.
-Nothing here touches the published map. Collision spreading is applied only to
-builds within publish.MAX_GAMES; above the cap the 1-unit spacing cannot be met.
+--text-field and --device override the config for this run only. Nothing here
+touches the published map. Collision spreading is applied only to builds within
+publish.MAX_GAMES; above the cap the 1-unit spacing cannot be met.
 
 Shape of the data:
     Run     one (build, method): the rows that have a vector, top-10 neighbours
@@ -23,7 +26,6 @@ from __future__ import annotations
 
 import argparse
 import base64
-import copy
 import gzip
 import json
 import shutil
@@ -37,12 +39,13 @@ import numpy as np
 from pipeline import compare_vectors as C
 from pipeline import publish
 from pipeline.build_map import build_map_from_vectors
-from pipeline.config import ARTIFACTS_DIR, alias_lookup, load_config, vectorization_params
-from pipeline.vectorize import FEATURE_METHODS, METHODS, TEXT_METHODS, TagCorpus, load_corpus, vectorize
+from pipeline.config import ARTIFACTS_DIR, EMBEDDING_DEVICES, TEXT_FIELDS, load_config, vectorization_params
+from pipeline.vectorize import TEXT_METHODS, TagCorpus, load_corpus_for, vectorize
 
 DEFAULT_METHODS = ["votes_max", "desc_embed", "hybrid_embed", "hybrid_max", "semantic", "hybrid_semantic"]
 SHOW_K, TOP_TAGS, RAW_TAGS = 10, 6, 10
 NO_TAG = 65535
+SMALL_LABEL, FULL_LABEL = "1k", "90k"
 VIEWER = Path(__file__).with_name("vector_lab.html")
 
 
@@ -71,7 +74,7 @@ class Run:
 
 
 def load_build(label: str, db: Path, cfg: dict) -> Build:
-    corpus = load_corpus(db, alias_lookup(cfg), cfg["vectorization"].get("text_field", "description"))
+    corpus = load_corpus_for(db, cfg)
     conn = sqlite3.connect(Path(db).resolve().as_uri() + "?mode=ro", uri=True)
     try:
         rows = conn.execute("SELECT store_url, rating_count FROM games ORDER BY game_id").fetchall()
@@ -93,7 +96,7 @@ def universe_rows(build: Build, universe: Build) -> np.ndarray:
     if (found < 0).any():
         raise SystemExit(
             f"{int((found < 0).sum())} games of build {build.label!r} are not in "
-            f"{universe.label!r} (matched by store_url); the last --build must contain every other build"
+            f"{universe.label!r} (matched by store_url); --full must contain every game of --small"
         )
     return found
 
@@ -116,10 +119,7 @@ def run_method(
     kept = vectors[valid]
     k = cfg["layout"]["neighbor_count"]
     spread = len(valid) <= publish.MAX_GAMES
-    if not spread:
-        cfg = copy.deepcopy(cfg)
-        cfg["layout"]["collision_min_distance"] = 0
-    made = build_map_from_vectors(kept, corpus.game_ids[valid], cfg)
+    made = build_map_from_vectors(kept, corpus.game_ids[valid], cfg, spread_collisions=spread)
 
     # neighbours come out grouped by game, best first
     local = np.searchsorted(
@@ -204,7 +204,7 @@ def write_lab(
             scores[key]["newcomers"] = float(np.mean([len(t - first_set) / SHOW_K for t in top.values()]))
             scores[key]["vs1k"] = overlap[keys.index(key)][keys.index(f"{first.label}:{r.method}")]
 
-    all_tags = sorted({t for r in runs if r.tag_names for t in r.tag_names})
+    all_tags = sorted({t for r in runs if r.tag_names for t in r.tag_names} | set(universe.corpus.tags))
     tag_id = {t: i for i, t in enumerate(all_tags)}
 
     n_universe = len(universe.corpus.game_ids)
@@ -228,17 +228,19 @@ def write_lab(
         ("ratingCount", np.clip(universe.rating_counts, 0, 2**32 - 1).astype(np.uint32)),
         ("in1k", in_first),
     ])
+    if cfg["cluster_count"] > 256:
+        raise ValueError(f"cluster_count {cfg['cluster_count']} does not fit the uint8 cluster ids")
     meta = {
         "nUniverse": n_universe, "titles": universe.corpus.titles,
         "genres": ["".join(chr(65 + genre_id[g]) for g in sorted(gs)) for gs in universe.genres],
         "genreNames": genre_names, "tags": all_tags, "rawK": RAW_TAGS, "showK": SHOW_K, "topTags": TOP_TAGS,
         "pairK": cfg["layout"]["neighbor_count"], "genreK": C.GENRE_K, "alpha": params["hybrid_alpha"],
+        "descriptionFloor": params["description_floor"], "textField": params["text_field"],
         "configMethod": params["method"], "clusterColors": cfg["layout"]["cluster_colors"],
         "methodOrder": keys, "overlap": overlap,
         "randomGenreJaccard": {first.label: C.random_genre_jaccard(first.genres, cfg["random_seed"], C.GENRE_K)},
         "shared": shared, "sharedFile": "shared.bin.gz.b64.txt", "methods": {},
     }
-    assert cfg["cluster_count"] <= 256, "clusters are stored as uint8"
     for key, r in zip(keys, runs):
         arrays = [
             ("rows", r.rows.astype(np.uint32)),
@@ -256,21 +258,9 @@ def write_lab(
     shutil.copyfile(VIEWER, out / "index.html")
 
 
-def parse_build(text: str) -> tuple[str, Path]:
-    label, sep, path = text.partition("=")
-    if not sep or not label or not path or ":" in label:
-        raise argparse.ArgumentTypeError(f"--build wants LABEL=PATH (no ':' in LABEL), got {text!r}")
-    return label, Path(path)
-
-
-def build_lab(
-    builds: list[tuple[str, Path]], methods: list[str], out: Path, cfg: dict, log=print
-) -> list[Run]:
+def build_lab(small: Path, full: Path, out: Path, cfg: dict, log=print) -> list[Run]:
     t0 = time.time()
-    loaded = [load_build(label, db, cfg) for label, db in builds]
-    labels = [b.label for b in loaded]
-    if len(set(labels)) != len(labels):
-        raise SystemExit(f"--build labels must be unique, got {labels}")
+    loaded = [load_build(SMALL_LABEL, small, cfg), load_build(FULL_LABEL, full, cfg)]
     universe = loaded[-1]
     if len(set(universe.store_urls)) != len(universe.store_urls) or None in universe.store_urls:
         raise SystemExit(f"{universe.label!r} has missing or repeated store_url values, so it cannot be the universe")
@@ -278,7 +268,7 @@ def build_lab(
     runs = []
     for b in loaded:
         pairs, _ = C.resolve_pairs(b.corpus, C.read_pair_titles())
-        for method in methods:
+        for method in DEFAULT_METHODS:
             start = time.time()
             r = run_method(b, method, to_universe[b.label], pairs, cfg)
             s = r.scores
@@ -296,18 +286,19 @@ def build_lab(
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--build", action="append", type=parse_build, required=True, metavar="LABEL=PATH")
-    parser.add_argument(
-        "--methods", nargs="+", default=DEFAULT_METHODS, choices=sorted(set(METHODS) - FEATURE_METHODS)
-    )
-    parser.add_argument("--device", help="embedding device for this run only; overrides vectorization.embedding_device")
+    parser.add_argument("--small", type=Path, required=True, help="the 1,000-game database")
+    parser.add_argument("--full", type=Path, required=True, help="the whole catalogue; the universe of the output")
+    parser.add_argument("--text-field", choices=TEXT_FIELDS, default="long_description",
+                        help="text the description methods embed, for this run only")
+    parser.add_argument("--device", choices=EMBEDDING_DEVICES, help="embedding device for this run only; overrides vectorization.embedding_device")
     parser.add_argument("--out", type=Path, default=ARTIFACTS_DIR / "vector_lab")
     args = parser.parse_args(argv)
 
     cfg = load_config()
+    cfg["vectorization"]["text_field"] = args.text_field
     if args.device:
         cfg["vectorization"]["embedding_device"] = args.device
-    build_lab(args.build, args.methods, args.out, cfg)
+    build_lab(args.small, args.full, args.out, cfg)
 
 
 if __name__ == "__main__":

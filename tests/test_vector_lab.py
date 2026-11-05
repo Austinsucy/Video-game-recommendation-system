@@ -3,7 +3,6 @@ import base64
 import copy
 import gzip
 import json
-import zlib
 
 import numpy as np
 import pytest
@@ -11,18 +10,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from backend.app.models import Base, Game
-from pipeline.config import load_config
+from pipeline.config import load_config, vectorization_params
 from pipeline.vector_lab import DEFAULT_METHODS, build_lab, main
+from pipeline.vectorize import load_corpus_for, neighbor_indices, vectorize
+from tests.conftest import fake_embed
 
 N_SMALL, N_BIG = 30, 45
-
-
-def fake_embed(texts, params):
-    rows = []
-    for text in texts:
-        v = np.random.default_rng(zlib.crc32(text.encode())).normal(size=6)
-        rows.append(v / np.linalg.norm(v))
-    return np.array(rows)
 
 
 def make_db(path, games):
@@ -63,7 +56,7 @@ def dbs(tmp_path, monkeypatch):
     small, big = tmp_path / "small.db", tmp_path / "big.db"
     make_db(small, range(N_SMALL))
     make_db(big, range(N_BIG))
-    return [("small", small), ("big", big)]
+    return {"small": small, "full": big}
 
 
 def decode(out, layout, file):
@@ -73,11 +66,15 @@ def decode(out, layout, file):
     }
 
 
+def run_lab(dbs, cfg, out):
+    return build_lab(**dbs, out=out, cfg=cfg, log=lambda _: None)
+
+
 def test_output_decodes_with_the_declared_lengths(dbs, cfg, tmp_path):
     out = tmp_path / "lab"
-    build_lab(dbs, DEFAULT_METHODS, out, cfg, log=lambda _: None)
+    run_lab(dbs, cfg, out)
     meta = json.loads((out / "meta.json").read_text())
-    assert meta["methodOrder"] == [f"{b}:{m}" for b in ("small", "big") for m in DEFAULT_METHODS]
+    assert meta["methodOrder"] == [f"{b}:{m}" for b in ("1k", "90k") for m in DEFAULT_METHODS]
     assert (out / "index.html").read_text().startswith("<!DOCTYPE html>")
 
     shared = decode(out, meta["shared"], meta["sharedFile"])
@@ -95,46 +92,93 @@ def test_output_decodes_with_the_declared_lengths(dbs, cfg, tmp_path):
         assert ("tagIdx" in a) == (m["space"] == "tags")
         if "tagIdx" in a:
             assert len(a["tagIdx"]) == len(a["tagW"]) == n * meta["topTags"]
-        if m["build"] == "big":
+        if m["build"] == "90k":
             assert 0 <= m["vs1k"] <= 1 and 0 <= m["newcomers"] <= 1
+
+
+def test_meta_carries_what_the_viewer_reads(dbs, cfg, tmp_path):
+    out = tmp_path / "lab"
+    run_lab(dbs, cfg, out)
+    meta = json.loads((out / "meta.json").read_text())
+    for build in ("1k", "90k"):
+        for method in DEFAULT_METHODS:
+            assert f"{build}:{method}" in meta["methods"]
+    assert meta["textField"] == cfg["vectorization"]["text_field"]
+    assert meta["descriptionFloor"] == cfg["vectorization"]["description_floor"]
+
+
+def test_exported_neighbours_are_the_pipelines_neighbours(dbs, cfg, tmp_path):
+    out = tmp_path / "lab"
+    run_lab(dbs, cfg, out)
+    meta = json.loads((out / "meta.json").read_text())
+    exported = decode(out, meta["methods"]["1k:votes_max"]["layout"], meta["methods"]["1k:votes_max"]["file"])
+
+    corpus = load_corpus_for(dbs["small"], cfg)
+    vectors = vectorize(corpus, "votes_max", vectorization_params(cfg))
+    valid = np.flatnonzero(np.linalg.norm(vectors, axis=1) > 0)
+    expected = valid[neighbor_indices(vectors[valid], cfg["layout"]["neighbor_count"])[:, : meta["showK"]]]
+
+    got = exported["nb"].reshape(-1, meta["showK"])
+    universe_titles = np.array(meta["titles"])
+    np.testing.assert_array_equal(universe_titles[got], np.array(corpus.titles)[expected])
+    np.testing.assert_array_equal(universe_titles[exported["rows"]], np.array(corpus.titles)[valid])
 
 
 def test_games_without_a_vector_are_left_off_tag_methods_but_kept_by_semantic(dbs, cfg, tmp_path):
     out = tmp_path / "lab"
-    build_lab(dbs, ["votes_max", "semantic"], out, cfg, log=lambda _: None)
+    run_lab(dbs, cfg, out)
     methods = json.loads((out / "meta.json").read_text())["methods"]
     tagless = len([g for g in range(N_BIG) if g % 11 == 0])
-    assert methods["big:votes_max"]["n"] == N_BIG - tagless
-    assert methods["big:semantic"]["n"] == N_BIG
+    assert methods["90k:votes_max"]["n"] == N_BIG - tagless
+    assert methods["90k:semantic"]["n"] == N_BIG
+
+
+def test_a_run_set_without_tag_space_methods_still_writes(dbs, cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr("pipeline.vector_lab.DEFAULT_METHODS", ["semantic"])
+    out = tmp_path / "lab"
+    run_lab(dbs, cfg, out)
+    meta = json.loads((out / "meta.json").read_text())
+    assert meta["methodOrder"] == ["1k:semantic", "90k:semantic"]
+    assert meta["tags"]
 
 
 def test_a_second_run_is_byte_identical(dbs, cfg, tmp_path):
     for name in ("one", "two"):
-        build_lab(dbs, ["votes_max", "hybrid_semantic"], tmp_path / name, cfg, log=lambda _: None)
+        run_lab(dbs, cfg, tmp_path / name)
     files = sorted(p.name for p in (tmp_path / "one").iterdir())
     assert files == sorted(p.name for p in (tmp_path / "two").iterdir())
     for f in files:
         assert (tmp_path / "one" / f).read_bytes() == (tmp_path / "two" / f).read_bytes()
 
 
-def test_a_game_missing_from_the_last_build_fails_loudly(dbs, cfg, tmp_path):
+def test_a_game_missing_from_the_full_database_fails_loudly(dbs, cfg, tmp_path):
     with pytest.raises(SystemExit, match="15 games"):
-        build_lab(dbs[::-1], ["votes_max"], tmp_path / "lab", cfg, log=lambda _: None)
+        build_lab(small=dbs["full"], full=dbs["small"], out=tmp_path / "lab", cfg=cfg, log=lambda _: None)
 
 
-def test_cli_rejects_a_label_with_a_colon(tmp_path):
+def test_cli_wants_both_databases(tmp_path):
     with pytest.raises(SystemExit):
-        main(["--build", "a:b=x.db", "--out", str(tmp_path)])
+        main(["--small", "x.db", "--out", str(tmp_path)])
+
+
+def test_cli_text_field_overrides_the_config_for_the_run(dbs, tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr("pipeline.vector_lab.build_lab", lambda small, full, out, cfg: seen.update(cfg["vectorization"]))
+    main(["--small", "a.db", "--full", "b.db", "--out", str(tmp_path)])
+    assert seen["text_field"] == "long_description"
+    main(["--small", "a.db", "--full", "b.db", "--text-field", "description", "--device", "cpu"])
+    assert seen["text_field"] == "description"
+    assert load_config()["vectorization"]["text_field"] == "description"
 
 
 def test_collision_spreading_is_skipped_only_above_the_game_cap(dbs, cfg, tmp_path, monkeypatch):
     def spread_flags(name):
         out = tmp_path / name
-        build_lab(dbs, ["votes_max"], out, cfg, log=lambda _: None)
+        run_lab(dbs, cfg, out)
         methods = json.loads((out / "meta.json").read_text())["methods"]
-        return {k: m["collisionsSpread"] for k, m in methods.items()}
+        return {k: m["collisionsSpread"] for k, m in methods.items() if k.endswith(":votes_max")}
 
-    assert spread_flags("capped") == {"small:votes_max": True, "big:votes_max": True}
+    assert spread_flags("capped") == {"1k:votes_max": True, "90k:votes_max": True}
     monkeypatch.setattr("pipeline.publish.MAX_GAMES", 35)
-    assert spread_flags("over") == {"small:votes_max": True, "big:votes_max": False}
+    assert spread_flags("over") == {"1k:votes_max": True, "90k:votes_max": False}
     assert cfg["layout"]["collision_min_distance"] > 0

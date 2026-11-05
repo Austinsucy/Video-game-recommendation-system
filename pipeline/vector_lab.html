@@ -242,11 +242,11 @@ input[type=range]:disabled { opacity: 0.4; }
 
   const DESC = {
     votes_max: "Tag votes divided by the game's most-voted tag. The method the config uses for map v2.",
-    desc_embed: "Tags that the sentence-embedding model judges close to the long description get boosted; a tag never mentioned keeps the 0.4 floor.",
+    desc_embed: `Tags that the sentence-embedding model judges close to the long description get boosted; a tag never mentioned keeps the ${D.descriptionFloor} floor.`,
     hybrid_embed: `${Math.round(D.alpha * 100)}% votes_log plus ${Math.round((1 - D.alpha) * 100)}% desc_embed, in tag space. Existing pipeline method.`,
-    hybrid_max: `${Math.round(D.alpha * 100)}% votes_max plus ${Math.round((1 - D.alpha) * 100)}% desc_embed: hybrid_embed with votes_max in place of votes_log. Not a pipeline method yet.`,
-    semantic: "The description embedding itself (384 numbers), no tags at all. Not a pipeline method; shown to see what the text alone knows.",
-    hybrid_semantic: `Not a pipeline method yet: votes_max and the raw description embedding side by side, so cosine = ${D.alpha} × tag cosine + ${fmt(1 - D.alpha, 1)} × text cosine. Covers tagless games.`,
+    hybrid_max: `${Math.round(D.alpha * 100)}% votes_max plus ${Math.round((1 - D.alpha) * 100)}% desc_embed: hybrid_embed with votes_max in place of votes_log. Pipeline method.`,
+    semantic: "The description embedding itself (384 numbers), no tags at all. Pipeline method; shown to see what the text alone knows.",
+    hybrid_semantic: `Pipeline method: votes_max and the raw description embedding side by side, so cosine = ${D.alpha} × tag cosine + ${fmt(1 - D.alpha, 1)} × text cosine. Covers tagless games.`,
   };
   const builds = ["1k", "90k"], methodNames = [...new Set(M.map((k) => k.split(":")[1]))];
   const label = (k) => { const [b, m] = k.split(":"); return `${b} · ${m}`; };
