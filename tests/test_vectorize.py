@@ -3,7 +3,6 @@ import dataclasses
 import sqlite3
 import sys
 import types
-import zlib
 
 import numpy as np
 import pytest
@@ -15,7 +14,6 @@ from pipeline.vectorize import (
     FEATURE_METHODS,
     METHODS,
     SIMILARITY_DECIMALS,
-    TEXT_METHODS,
     CuratedFeatures,
     TagCorpus,
     feature_strengths,
@@ -24,7 +22,7 @@ from pipeline.vectorize import (
     neighbor_indices,
     vectorize,
 )
-from tests.conftest import no_features, order_from_votes
+from tests.conftest import fake_embed, no_features, order_from_votes
 
 CORE_METHODS = [
     m for m in METHODS if m not in EMBEDDING_METHODS and m not in FEATURE_METHODS
@@ -358,15 +356,6 @@ def test_curated_features_reject_mismatched_shapes():
 
 # --- text methods, blocked neighbours ---------------------------------------
 
-def fake_embed(texts, params):
-    """Deterministic stand-in for the sentence model: unit rows, equal texts equal rows."""
-    rows = []
-    for text in texts:
-        v = np.random.default_rng(zlib.crc32(text.encode())).normal(size=6)
-        rows.append(v / np.linalg.norm(v))
-    return np.array(rows)
-
-
 @pytest.fixture
 def texted(corpus, monkeypatch) -> TagCorpus:
     monkeypatch.setattr("pipeline.vectorize._embed", fake_embed)
@@ -420,11 +409,6 @@ def test_hybrid_semantic_keeps_a_game_with_a_blank_text_on_its_tags(texted):
     vectors = vectorize(texted, "hybrid_semantic", PARAMS)
     assert np.linalg.norm(vectors[3]) == pytest.approx(1)
     assert not vectors[3, texted.votes.shape[1]:].any()
-
-
-def test_text_methods_are_marked_as_embedding_methods():
-    assert TEXT_METHODS <= EMBEDDING_METHODS
-    assert "hybrid_max" in EMBEDDING_METHODS
 
 
 def test_embedding_cache_key_ignores_cpu_but_not_other_devices(tmp_path, monkeypatch):

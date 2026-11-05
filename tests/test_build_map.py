@@ -12,6 +12,7 @@ from pipeline import publish
 from pipeline.build_map import (
     assign_clusters,
     build_map,
+    main,
     layout_2d,
     neighbors_kept_on_map,
     nearest_neighbors,
@@ -237,3 +238,17 @@ def test_neighbours_kept_on_map_counts_the_true_neighbours_among_the_closest_poi
     apart = np.array([[0.0, 0], [10, 10], [1, 0], [11, 10]])
     assert neighbors_kept_on_map(together, vectors, 1) == 1.0
     assert neighbors_kept_on_map(apart, vectors, 1) == 0.0
+
+
+def test_publish_refuses_a_non_cpu_embedding_build(cfg, monkeypatch, capsys):
+    cfg["vectorization"].update(method="hybrid_embed", embedding_device="cuda")
+    monkeypatch.setattr("pipeline.build_map.load_config", lambda: cfg)
+    monkeypatch.setattr(
+        "pipeline.build_map.load_corpus_for", lambda *a: pytest.fail("the build must not start")
+    )
+    monkeypatch.setattr(
+        publish, "publish_map", lambda *a, **k: pytest.fail("nothing may be published")
+    )
+    with pytest.raises(SystemExit, match="CPU-built"):
+        main(["--publish"])
+

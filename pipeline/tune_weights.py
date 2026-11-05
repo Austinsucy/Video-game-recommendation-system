@@ -23,8 +23,8 @@ import numpy as np
 
 from backend.app.db import DB_PATH
 from pipeline.compare_vectors import read_pair_titles, resolve_pairs
-from pipeline.config import ARTIFACTS_DIR, alias_lookup, load_config, vectorization_params
-from pipeline.vectorize import TagCorpus, load_corpus, vectorize
+from pipeline.config import ARTIFACTS_DIR, load_config, vectorization_params
+from pipeline.vectorize import TagCorpus, load_corpus_for, vectorize
 
 REPORT_PATH = ARTIFACTS_DIR / "weight_tuning.md"
 PAIR_K = 15
@@ -164,7 +164,7 @@ def main(argv: list[str] | None = None) -> None:
 
     cfg = load_config()
     params = vectorization_params(cfg)
-    corpus = load_corpus(DB_PATH, alias_lookup(cfg), cfg["vectorization"].get("text_field", "description"))
+    corpus = load_corpus_for(DB_PATH, cfg)
     titles = read_pair_titles()
     pairs, missing = resolve_pairs(corpus, titles)
     if missing:

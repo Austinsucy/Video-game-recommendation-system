@@ -37,16 +37,16 @@ from pipeline import publish
 from pipeline.config import (
     ARTIFACTS_DIR,
     MAP_DB_PATH,
-    alias_lookup,
     is_valid_version_id,
     load_config,
     vectorization_params,
 )
 from pipeline.export_map import export_map_db
 from pipeline.vectorize import (
+    EMBEDDING_METHODS,
     SIMILARITY_DECIMALS,
     TagCorpus,
-    load_corpus,
+    load_corpus_for,
     neighbor_indices,
     vectorize,
 )
@@ -211,11 +211,16 @@ def cluster_rows(n_clusters: int, colors: list[str]) -> list[dict]:
     ]
 
 
-def build_map_from_vectors(vectors: np.ndarray, game_ids: np.ndarray, cfg: dict) -> MapBuild:
+def build_map_from_vectors(
+    vectors: np.ndarray, game_ids: np.ndarray, cfg: dict, spread_collisions: bool = True
+) -> MapBuild:
+    """`spread_collisions=False` is for lab maps over the CON 3 cap, where the spacing cannot be met."""
     layout = cfg["layout"]
     seed, n_clusters = cfg["random_seed"], cfg["cluster_count"]
     coords = layout_2d(vectors, layout, seed)
-    coords, moved = separate_collisions(coords, game_ids, layout["collision_min_distance"])
+    moved = 0
+    if spread_collisions:
+        coords, moved = separate_collisions(coords, game_ids, layout["collision_min_distance"])
     labels = assign_clusters(vectors, n_clusters, cfg["kmeans_n_init"], seed)
     positions = [
         {
@@ -289,6 +294,12 @@ def main(argv: list[str] | None = None) -> None:
     if not is_valid_version_id(version):
         parser.error("--version-id must match [A-Za-z0-9._-]+ and not contain '..'")
     method = cfg["vectorization"]["method"]
+    device = cfg["vectorization"]["embedding_device"]
+    if args.publish and method in EMBEDDING_METHODS and device != "cpu":
+        sys.exit(
+            f"method {method!r} embeds text on embedding_device {device!r}; published maps are "
+            "CPU-built (REL 2). Set vectorization.embedding_device to \"cpu\". Nothing was written."
+        )
     if map_version_exists(DB_PATH, version):
         if args.publish:
             sys.exit(
@@ -299,7 +310,7 @@ def main(argv: list[str] | None = None) -> None:
             f"WARNING: map version {version!r} already exists; "
             "--publish would refuse it. Use a new --version-id or map_version."
         )
-    corpus = load_corpus(DB_PATH, alias_lookup(cfg), cfg["vectorization"].get("text_field", "description"))
+    corpus = load_corpus_for(DB_PATH, cfg)
     build = build_map(corpus, cfg)
     publish.validate(
         build.clusters, build.positions, build.neighbors, set(corpus.game_ids.tolist())

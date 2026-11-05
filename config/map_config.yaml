@@ -291,12 +291,12 @@ category_weights:
 vectorization:
   method: "votes_max"          # chosen 2026-11-02 for map v2 (docs/decisions.md, decision 4); v1 used votes_log_idf
   description_floor: 0.4       # weight of a present tag the description never mentions
-  hybrid_alpha: 0.7            # hybrid_* = alpha * votes_log + (1 - alpha) * description
+  hybrid_alpha: 0.7            # weight on the tag side. hybrid_embed: alpha * votes_log + (1 - alpha) * description; hybrid_max: same with votes_max; hybrid_semantic: alpha * tag cosine + (1 - alpha) * text cosine
   rank_depth: 20               # Steam keeps each game's top 20 tags
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
   embedding_revision: "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"   # pinned Hugging Face commit (REL 2)
   embedding_tag_template: "a video game tagged {tag}"
-  text_field: "long_description"   # text the description methods embed; falls back to description when blank. votes_max ignores text
+  text_field: "description"        # column the description methods embed; the lab export overrides it per run (long_description falls back to description when blank)
   embedding_device: "cpu"          # published maps are CPU-built (REL 2); "cuda" is for lab runs only
 
 # -----------------------------------------------------------------------------

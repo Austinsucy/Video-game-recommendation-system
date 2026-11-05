@@ -44,9 +44,8 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from backend.app.db import DB_PATH
-from pipeline.config import ARTIFACTS_DIR, map_raw_tag
+from pipeline.config import ARTIFACTS_DIR, TEXT_FIELDS, alias_lookup, map_raw_tag
 
-TEXT_FIELDS = ("description", "long_description")
 NEIGHBOR_BLOCK = 512
 SIMILARITY_DECIMALS = 10  # ties are decided by game_id, so last-bit float noise must not matter
 
@@ -184,6 +183,11 @@ def load_corpus(
 
 
 # --- tag-vote methods -------------------------------------------------------
+
+def load_corpus_for(db_path: Path | str, cfg: dict) -> TagCorpus:
+    """load_corpus with the config's alias table and `vectorization.text_field`."""
+    return load_corpus(db_path, alias_lookup(cfg), cfg["vectorization"]["text_field"])
+
 
 def binary(corpus: TagCorpus, params: Params) -> np.ndarray:
     return corpus.present.astype(float)
@@ -411,9 +415,7 @@ def vectorize(corpus: TagCorpus, method: str, params: Params) -> np.ndarray:
         raise ValueError(
             f"unknown vectorization method {method!r}; valid methods: {sorted(METHODS)}"
         )
-    weights = METHODS[method](corpus, params)
-    norms = np.linalg.norm(weights, axis=1, keepdims=True)
-    return weights / np.where(norms > 0, norms, 1.0)
+    return _unit(METHODS[method](corpus, params))
 
 
 def neighbor_indices(vectors: np.ndarray, k: int, block_size: int = NEIGHBOR_BLOCK) -> np.ndarray:

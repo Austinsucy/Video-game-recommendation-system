@@ -69,6 +69,8 @@ def _with_vectorization(**changes):
         {"embedding_model": ""},
         {"embedding_revision": ""},
         {"embedding_tag_template": "a video game"},
+        {"text_field": "title"},
+        {"embedding_device": "mps"},
     ],
 )
 def test_bad_vectorization_values_are_rejected(changes):
