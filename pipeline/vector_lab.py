@@ -8,7 +8,8 @@ every other build is found in it by store_url, and all neighbour lists in the
 output use its row numbers. For each build and method the full corpus is
 vectorized, games with no vector are left out, and the map is built by
 pipeline.build_map, so the lab shows exactly what the pipeline produces.
-Nothing here touches the published map.
+Nothing here touches the published map. Collision spreading is applied only to
+builds within publish.MAX_GAMES; above the cap the 1-unit spacing cannot be met.
 
 Shape of the data:
     Run     one (build, method): the rows that have a vector, top-10 neighbours
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import gzip
 import json
 import shutil
@@ -33,6 +35,7 @@ from pathlib import Path
 import numpy as np
 
 from pipeline import compare_vectors as C
+from pipeline import publish
 from pipeline.build_map import build_map_from_vectors
 from pipeline.config import ARTIFACTS_DIR, alias_lookup, load_config, vectorization_params
 from pipeline.vectorize import FEATURE_METHODS, METHODS, TEXT_METHODS, TagCorpus, load_corpus, vectorize
@@ -114,6 +117,10 @@ def run_method(
     valid = np.flatnonzero(np.linalg.norm(vectors, axis=1) > 0)
     kept = vectors[valid]
     k = cfg["layout"]["neighbor_count"]
+    spread = len(valid) <= publish.MAX_GAMES
+    if not spread:
+        cfg = copy.deepcopy(cfg)
+        cfg["layout"]["collision_min_distance"] = 0
     made = build_map_from_vectors(kept, corpus.game_ids[valid], cfg)
 
     # neighbours come out grouped by game, best first
@@ -135,6 +142,7 @@ def run_method(
         "pairMutual": mutual, "pairOneWay": one_way, "pairsFound": len(found),
         "genreJaccard": C.mean_genre_jaccard(local, [build.genres[i] for i in valid], C.GENRE_K),
         "keptTsne": made.neighbors_kept_on_map,
+        "collisionsSpread": spread,
         "space": "none" if tag_weights is None else "tags",
     }
     tag_idx = tag_w = None
@@ -280,6 +288,7 @@ def build_lab(
                 f"[{time.time() - t0:7.1f}s] {b.label}:{method} n={s['n']} "
                 f"pairs={s['pairMutual']:.2f}/{s['pairOneWay']:.2f} on {s['pairsFound']} "
                 f"genre={s['genreJaccard']:.3f} kept={s['keptTsne']:.2f} ({time.time() - start:.0f}s)"
+                + ("" if s["collisionsSpread"] else " no collision spreading (over CON 3 cap)")
             )
             runs.append(r)
     write_lab(out, loaded, runs, to_universe, cfg)

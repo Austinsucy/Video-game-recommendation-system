@@ -125,3 +125,16 @@ def test_a_game_missing_from_the_last_build_fails_loudly(dbs, cfg, tmp_path):
 def test_cli_rejects_a_label_with_a_colon(tmp_path):
     with pytest.raises(SystemExit):
         main(["--build", "a:b=x.db", "--out", str(tmp_path)])
+
+
+def test_collision_spreading_is_skipped_only_above_the_game_cap(dbs, cfg, tmp_path, monkeypatch):
+    def spread_flags(name):
+        out = tmp_path / name
+        build_lab(dbs, ["votes_max"], out, cfg, log=lambda _: None)
+        methods = json.loads((out / "meta.json").read_text())["methods"]
+        return {k: m["collisionsSpread"] for k, m in methods.items()}
+
+    assert spread_flags("capped") == {"small:votes_max": True, "big:votes_max": True}
+    monkeypatch.setattr("pipeline.publish.MAX_GAMES", 35)
+    assert spread_flags("over") == {"small:votes_max": True, "big:votes_max": False}
+    assert cfg["layout"]["collision_min_distance"] > 0
