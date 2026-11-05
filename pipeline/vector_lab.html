@@ -9,7 +9,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: summary of 1k vs 90k, control bar, selected game strip, two mirrored columns (map, neighbours, tag weights), then the cross-method grids. */
 :root {
   --bg: #f3f4f7; --panel: #ffffff; --fg: #1b1f2a; --muted: #5d6576; --line: #d9dce4;
   --accent: #2f5bd3; --accent-soft: #e3e9fb; --b: #b4441b; --b-soft: #f8e6dd; --shared: #1d7a55; --map-bg: #fbfbfd;
@@ -268,7 +267,6 @@ input[type=range]:disabled { opacity: 0.4; }
   const state = { a: "1k:hybrid_embed", b: "90k:hybrid_embed", game: lower.indexOf("factorio"), dots: "same", boost: 3 };
   let maxLog = 0;
   for (let i = 0; i < N; i++) maxLog = Math.max(maxLog, Math.log1p(D.ratingCount[i]));
-  // 0 for no reviews, 1 for the most-reviewed game, on a log scale; curved so only the popular end grows.
   const popT = Float32Array.from(D.ratingCount, (c) => (Math.log1p(c) / maxLog) ** 2.5);
   const popScale = (g, big) => (0.35 + state.boost * 2.5 * popT[g]) * (big ? 1.8 : 1);
   try {
@@ -426,7 +424,6 @@ input[type=range]:disabled { opacity: 0.4; }
       const placed = [];
       for (const i of drawn) {
         const g = m.rows[i], t = bySize ? popT[g] : 0;
-        // Label size follows the dot: 11px for the long tail up to 11 + 4.5 × scale px for the most-reviewed game.
         const size = bySize ? Math.round(11 + state.boost * 4.5 * t) : 11;
         ctx.font = `${size >= 16 ? 700 : 400} ${size}px ${font}`;
         const x = pts[2 * i] + rad * (bySize ? popScale(g, big) : 1) + 4, y = pts[2 * i + 1];
