@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Tag Vector Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: summary of 1k vs 90k, control bar, selected game strip, two mirrored columns (map, neighbours, tag weights), then the cross-method grids. */
+:root {
+  --bg: #f3f4f7; --panel: #ffffff; --fg: #1b1f2a; --muted: #5d6576; --line: #d9dce4;
+  --accent: #2f5bd3; --accent-soft: #e3e9fb; --b: #b4441b; --b-soft: #f8e6dd; --shared: #1d7a55; --map-bg: #fbfbfd;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151c; --panel: #1a1e28; --fg: #e8eaf0; --muted: #9aa2b4; --line: #2d3342;
+    --accent: #7d9bff; --accent-soft: #232d4a; --b: #f08a5d; --b-soft: #3a2620; --shared: #4fc995;
+    --map-bg: #151922; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151c; --panel: #1a1e28; --fg: #e8eaf0; --muted: #9aa2b4; --line: #2d3342;
+  --accent: #7d9bff; --accent-soft: #232d4a; --b: #f08a5d; --b-soft: #3a2620; --shared: #4fc995;
+  --map-bg: #151922; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5; margin: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 48px;
+}
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 20px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+h1 { font-size: 2rem; font-weight: 700; }
+h2 { font-size: 1.35rem; font-weight: 600; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; }
+.lede { color: var(--muted); max-width: 75ch; }
+.label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
+.num { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: end; }
+.field { display: grid; gap: 4px; min-width: 0; flex: 1 1 200px; position: relative; }
+select, input[type="search"], button {
+  font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px 10px; min-width: 0; width: 100%;
+}
+button { width: auto; cursor: pointer; font-weight: 700; }
+button:hover { border-color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.field.a .label { color: var(--accent); }
+.field.b .label { color: var(--b); }
+.pair { display: flex; gap: 6px; }
+.pair select:first-child { flex: 0 0 5rem; }
+.results { position: absolute; top: 100%; left: 0; right: 0; z-index: 5; margin: 4px 0 0; padding: 4px; list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.15); max-height: 22rem; overflow-y: auto; }
+.results li button { all: unset; display: flex; justify-content: space-between; gap: 10px; width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 4px; cursor: pointer; }
+.results li button:hover, .results li button.on { background: var(--accent-soft); }
+.results .meta { color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
+
+.game { display: grid; gap: 10px; }
+.game-head { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; }
+.badge { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 1px 8px; background: var(--accent-soft); color: var(--accent); }
+.badge.out { background: var(--b-soft); color: var(--b); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 0.82rem; border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; background: var(--bg); }
+.chip .num { color: var(--muted); font-size: 0.75rem; margin-left: 4px; }
+
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 20px; }
+.col { display: grid; gap: 14px; align-content: start; }
+.col-head { display: grid; gap: 6px; border-left: 4px solid var(--side); padding-left: 10px; }
+.col[data-side="a"] { --side: var(--accent); --side-soft: var(--accent-soft); }
+.col[data-side="b"] { --side: var(--b); --side-soft: var(--b-soft); }
+.desc { color: var(--muted); font-size: 0.9rem; }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.85rem; }
+.stats span b { font-family: var(--font-data); font-weight: 600; }
+.map { position: relative; aspect-ratio: 1 / 1; width: 100%; max-width: 100%; background: var(--map-bg); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.map canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+.zoom { position: absolute; top: 8px; right: 8px; display: grid; gap: 4px; z-index: 2; }
+.zoom button { width: 2rem; height: 2rem; padding: 0; display: grid; place-items: center; font-size: 1rem; line-height: 1; background: color-mix(in srgb, var(--panel) 88%, transparent); }
+.map canvas { touch-action: none; }
+.map .loading[hidden] { display: none; }
+.map .loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 0.9rem; }
+.tip { position: absolute; pointer-events: none; background: var(--fg); color: var(--bg); font-size: 0.8rem; padding: 3px 8px; border-radius: 4px; white-space: nowrap; transform: translate(-50%, -130%); }
+.map-note { font-size: 0.8rem; color: var(--muted); }
+.empty { color: var(--muted); font-size: 0.9rem; }
+
+ol.nb { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+ol.nb li { display: grid; grid-template-columns: 2ch 1fr auto auto; gap: 10px; align-items: baseline; padding: 4px 6px; border-radius: 5px; }
+ol.nb li button { all: unset; cursor: pointer; overflow-wrap: anywhere; }
+ol.nb li button:hover { text-decoration: underline; }
+ol.nb li button:focus-visible { outline: 2px solid var(--accent); }
+ol.nb li.shared { background: var(--side-soft); }
+ol.nb li .rank { color: var(--muted); font-size: 0.8rem; }
+ol.nb li .new { font-size: 0.68rem; font-weight: 700; color: var(--shared); letter-spacing: 0.05em; }
+.legend-line { font-size: 0.8rem; color: var(--muted); }
+
+.bars { display: grid; gap: 4px; }
+.bar { display: grid; grid-template-columns: minmax(0, 11rem) 1fr 3.4rem; gap: 8px; align-items: center; font-size: 0.85rem; }
+.bar .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar .track { height: 10px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--side); border-radius: 3px; display: block; }
+.bar .num { text-align: right; font-size: 0.8rem; color: var(--muted); }
+
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 0.85rem; }
+th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-weight: 700; color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+td.num, th.num { text-align: right; }
+tr.is-a td:first-child { box-shadow: inset 4px 0 var(--accent); }
+tr.is-b td:first-child { box-shadow: inset 4px 0 var(--b); }
+td.up { color: var(--shared); } td.down { color: var(--b); }
+.heat td.cell { width: 3.1rem; text-align: center; font-family: var(--font-data); font-size: 0.75rem; cursor: pointer; border: 1px solid var(--panel); }
+.heat td.cell.pick { outline: 2px solid var(--fg); outline-offset: -2px; }
+.heat th.rot { writing-mode: vertical-rl; transform: rotate(180deg); text-transform: none; letter-spacing: 0; font-family: var(--font-data); font-weight: 400; color: var(--fg); padding: 6px 2px; vertical-align: bottom; }
+.heat th.rowh { font-family: var(--font-data); font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.note { font-size: 0.85rem; color: var(--muted); max-width: 80ch; }
+.findings { margin: 0; padding-left: 1.2rem; display: grid; gap: 6px; max-width: 85ch; }
+table.methods td { white-space: normal; vertical-align: top; }
+table.methods td:first-child, table.methods td:nth-child(4) { white-space: nowrap; }
+table.methods td:nth-child(3) { min-width: 22rem; }
+input[type=range] { width: 100%; accent-color: var(--accent); margin: 10px 0; }
+input[type=range]:disabled { opacity: 0.4; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 20px; }
+#status { color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .bar .fill { transition: width 200ms ease; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header style="display:grid;gap:6px">
+    <h1>Tag Vector Lab: 1,000 games vs the full 89,618</h1>
+    <p class="lede">The same pipeline run twice: once on the 1,000-game map dataset from <code>main</code>, once on every game in the March 2025 Steam snapshot (<code>test/full-90k-database</code>). Both runs use the long “About this game” text instead of the short blurb. Put a 1k method on one side and a 90k method on the other to see how a game's neighbours, map and clusters change when the pool is 90 times larger.</p>
+    <p id="status" class="num">Loading data…</p>
+  </header>
+
+  <section class="panel" style="display:grid;gap:12px">
+    <h2>What changed going from 1k to 90k</h2>
+    <ul class="findings" id="findings"></ul>
+    <div class="scroll"><table id="deltaTable"></table></div>
+    <p class="note">Same as 1k: share of a game's 90k top 10 that were also in its 1k top 10, averaged over the 1,000 games. New games: share of the 90k top 10 that are not among the 1,000 at all. Pairs and Genre are explained under the score table below.</p>
+  </section>
+
+  <section class="panel" style="display:grid;gap:10px">
+    <h2>What each method weights</h2>
+    <div class="scroll"><table class="methods">
+      <thead><tr><th>Method</th><th>Reads</th><th>Weight of each tag the game has</th><th>Vector</th><th>Tagless games</th></tr></thead>
+      <tbody>
+        <tr><td class="num">votes_max *</td><td>Steam tag votes</td><td>votes ÷ votes on the game's top tag</td><td class="num">452 tags</td><td>Left out</td></tr>
+        <tr><td class="num">desc_embed</td><td>Tags + long description</td><td>0.4 + 0.6 × how close the tag is to the description (MiniLM cosine between the text and “a video game tagged {tag}”, rescaled 0–1 within the game). Ignores vote counts.</td><td class="num">452 tags</td><td>Left out</td></tr>
+        <tr><td class="num">hybrid_embed</td><td>Tag votes + long description</td><td>0.7 × votes_log + 0.3 × desc_embed, where votes_log = log(1 + votes) ÷ log(1 + top tag's votes)</td><td class="num">452 tags</td><td>Left out</td></tr>
+        <tr><td class="num">hybrid_max</td><td>Tag votes + long description</td><td>0.7 × votes_max + 0.3 × desc_embed: hybrid_embed with votes_max in place of votes_log, so the shape of the vote counts still counts</td><td class="num">452 tags</td><td>Left out</td></tr>
+        <tr><td class="num">semantic</td><td>Long description only</td><td>No tags: the MiniLM embedding of the text</td><td class="num">384 text dims</td><td>Included</td></tr>
+        <tr><td class="num">hybrid_semantic</td><td>Tag votes + long description</td><td>votes_max tags next to the semantic embedding, scaled by √0.7 and √0.3, so similarity = 0.7 × tag cosine + 0.3 × text cosine</td><td class="num">452 + 384</td><td>Included (text half only)</td></tr>
+      </tbody>
+    </table></div>
+    <p class="note">* the config's method for map v2. A tag the game doesn't have always weighs 0. Every vector is scaled to length 1, so neighbours are by cosine similarity. Steam lists up to 20 tags per game. The description is the first 256 word pieces of “About this game”.</p>
+  </section>
+
+  <section class="panel controls" aria-label="Choose methods and game">
+    <div class="field a" style="flex-basis:290px"><span class="label">Side A</span><div class="pair"><select id="buildA" aria-label="Side A build"></select><select id="methodA" aria-label="Side A method"></select></div></div>
+    <div class="field b" style="flex-basis:290px"><span class="label">Side B</span><div class="pair"><select id="buildB" aria-label="Side B build"></select><select id="methodB" aria-label="Side B method"></select></div></div>
+    <div class="field" style="flex-basis:300px"><label class="label" for="gameSearch">Game (any of the 89,618)</label><input id="gameSearch" type="search" placeholder="Type a title, e.g. Factorio" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="results"><ul class="results" id="results" role="listbox" hidden></ul></div>
+    <button id="randomGame" type="button">Random 1k game</button>
+    <button id="randomAny" type="button">Random any game</button>
+    <div class="field" style="flex:0 1 190px"><label class="label" for="dotSize">Dot size</label><select id="dotSize"><option value="same">Same for every game</option><option value="reviews">By Steam reviews</option></select></div>
+    <div class="field" style="flex:0 1 170px"><label class="label" for="boost">Size scale <span class="num" id="boostVal">3×</span></label><input id="boost" type="range" min="1" max="8" step="0.5" value="3"></div>
+    <button id="swap" type="button">Swap A and B</button>
+  </section>
+
+  <section class="panel game" aria-live="polite">
+    <div class="game-head"><h2 id="gameTitle"></h2><span id="gameBadge"></span><span class="label" id="gameGenres"></span></div>
+    <div><span class="label">Steam tags, most voted first (top 10)</span></div>
+    <div class="chips" id="gameTags"></div>
+  </section>
+
+  <section class="cols">
+    <div class="col" data-side="a" id="colA"></div>
+    <div class="col" data-side="b" id="colB"></div>
+  </section>
+
+  <section class="grid2">
+    <div class="panel" style="display:grid;gap:10px">
+      <h2>Scores for every method and build</h2>
+      <p class="note">Pairs: share of the 100 known-similar pairs in config/similar_pairs.yaml on Austin's branch (40 sequel pairs, 60 cross-studio pairs; commit 002ccc7). Pairs are matched by title; when the 90k data has several listings with one title (editions, bundles), the listing with the most tag votes is used where each game is in the other's top <span class="num" id="pairK"></span> (mutual) or at least one way. Only pairs where both games have a vector count. Genre: mean Jaccard overlap of Steam genres with the top <span class="num" id="genreK"></span> neighbours; random neighbours score <span class="num" id="randJ"></span> on the 1k set. Map kept: share of each game's 15 true neighbours that are also among its 15 closest dots on the t-SNE map.</p>
+      <div class="scroll"><table id="scoreTable"></table></div>
+    </div>
+    <div class="panel" style="display:grid;gap:10px">
+      <h2>How much do neighbour lists agree?</h2>
+      <p class="note">Mean overlap of each of the 1,000 games' top 10 neighbours between two runs. 1.00 means identical lists. Click a cell to put that pair on sides A and B.</p>
+      <div class="scroll"><table class="heat" id="heat"></table></div>
+    </div>
+  </section>
+
+  <section class="panel" style="display:grid;gap:8px">
+    <h2>How this was built</h2>
+    <p class="note">Built by <code>python -m pipeline.vector_lab</code> from the pipeline's own code and <code>config/map_config.yaml</code>: each game's text is its long description (short description when that is empty), and the embedding model is all-MiniLM-L6-v2 at the pinned revision, run on the configured embedding device. It reads only the first 256 word pieces of each text. Every map uses the published map's scikit-learn t-SNE and K-Means, with collision spreading applied. Neighbours are the exact cosine top-k, computed in row blocks. Games with no vector, such as games with no Steam tags under the tag-only methods, are left off the map; <code>semantic</code> and <code>hybrid_semantic</code> include them while they have a description. The CON 3 cap of 1,100 games means none of this can be published as the real map.</p>
+  </section>
+</div>
+<script>
+(async () => {
+  const $ = (id) => document.getElementById(id);
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const fmt = (x, d = 2) => Number(x).toFixed(d);
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  const TYPES = { uint32: Uint32Array, int16: Int16Array, float32: Float32Array, uint8: Uint8Array, uint16: Uint16Array };
+  const status = $("status");
+
+  async function getBin(file, layout) {
+    const res = await fetch(file);
+    if (!res.ok) throw new Error(`${file}: HTTP ${res.status}`);
+    const bin = atob(await res.text()), packed = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) packed[i] = bin.charCodeAt(i);
+    const buf = await new Response(new Blob([packed]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
+    const out = {};
+    for (const a of layout) {
+      const T = TYPES[a.dtype];
+      if (a.offset + a.length * T.BYTES_PER_ELEMENT > buf.byteLength) throw new Error(`${file}: ${a.name} past end of file`);
+      out[a.name] = new T(buf, a.offset, a.length);
+    }
+    return out;
+  }
+
+  let D;
+  try {
+    const res = await fetch("meta.json");
+    if (!res.ok) throw new Error(`meta.json: HTTP ${res.status}`);
+    D = await res.json();
+    Object.assign(D, await getBin(D.sharedFile, D.shared));
+  } catch (e) {
+    status.textContent = `Could not load the data: ${e.message}`;
+    return;
+  }
+  const N = D.nUniverse, M = D.methodOrder, RK = D.rawK, K = D.showK, TT = D.topTags;
+  const lower = D.titles.map((t) => t.toLowerCase());
+  const oneK = []; for (let i = 0; i < N; i++) if (D.in1k[i]) oneK.push(i);
+
+  const DESC = {
+    votes_max: "Tag votes divided by the game's most-voted tag. The method the config uses for map v2.",
+    desc_embed: "Tags that the sentence-embedding model judges close to the long description get boosted; a tag never mentioned keeps the 0.4 floor.",
+    hybrid_embed: `${Math.round(D.alpha * 100)}% votes_log plus ${Math.round((1 - D.alpha) * 100)}% desc_embed, in tag space. Existing pipeline method.`,
+    hybrid_max: `${Math.round(D.alpha * 100)}% votes_max plus ${Math.round((1 - D.alpha) * 100)}% desc_embed: hybrid_embed with votes_max in place of votes_log. Not a pipeline method yet.`,
+    semantic: "The description embedding itself (384 numbers), no tags at all. Not a pipeline method; shown to see what the text alone knows.",
+    hybrid_semantic: `Not a pipeline method yet: votes_max and the raw description embedding side by side, so cosine = ${D.alpha} × tag cosine + ${fmt(1 - D.alpha, 1)} × text cosine. Covers tagless games.`,
+  };
+  const builds = ["1k", "90k"], methodNames = [...new Set(M.map((k) => k.split(":")[1]))];
+  const label = (k) => { const [b, m] = k.split(":"); return `${b} · ${m}`; };
+
+  const loaded = {};
+  function method(key) {
+    if (!loaded[key]) {
+      const info = D.methods[key];
+      loaded[key] = getBin(info.file, info.layout).then((arr) => {
+        const pos = new Int32Array(N).fill(-1);
+        for (let r = 0; r < arr.rows.length; r++) pos[arr.rows[r]] = r;
+        return { ...info, ...arr, pos, key };
+      });
+    }
+    return loaded[key];
+  }
+
+  const state = { a: "1k:hybrid_embed", b: "90k:hybrid_embed", game: lower.indexOf("factorio"), dots: "same", boost: 3 };
+  let maxLog = 0;
+  for (let i = 0; i < N; i++) maxLog = Math.max(maxLog, Math.log1p(D.ratingCount[i]));
+  // 0 for no reviews, 1 for the most-reviewed game, on a log scale; curved so only the popular end grows.
+  const popT = Float32Array.from(D.ratingCount, (c) => (Math.log1p(c) / maxLog) ** 2.5);
+  const popScale = (g, big) => (0.35 + state.boost * 2.5 * popT[g]) * (big ? 1.8 : 1);
+  try {
+    const saved = JSON.parse(localStorage.getItem("tvl90k-state") || "null");
+    if (saved && M.includes(saved.a) && M.includes(saved.b) && saved.game >= 0 && saved.game < N) Object.assign(state, saved);
+    if (state.dots !== "same" && state.dots !== "reviews") state.dots = "same";
+    if (!(state.boost >= 1 && state.boost <= 8)) state.boost = 3;
+  } catch (e) {}
+  if (state.game < 0) state.game = oneK[0];
+
+  for (const s of ["A", "B"]) {
+    $("build" + s).innerHTML = builds.map((b) => `<option value="${b}">${b === "1k" ? "1k" : "90k"}</option>`).join("");
+    $("method" + s).innerHTML = methodNames.map((m) => `<option value="${m}">${m}${m === D.configMethod ? " (config)" : ""}</option>`).join("");
+  }
+  $("pairK").textContent = D.pairK; $("genreK").textContent = D.genreK; $("randJ").textContent = fmt(D.randomGenreJaccard["1k"]);
+
+  function columnHTML() {
+    return `<div class="col-head"><h3 data-role="name"></h3><p class="desc" data-role="desc"></p><div class="stats" data-role="stats"></div></div>
+      <div class="map"><canvas aria-label="t-SNE map: scroll or pinch to zoom, drag to pan, click a dot to select that game"></canvas><div class="zoom" role="group" aria-label="Map zoom"><button type="button" data-zoom="in" aria-label="Zoom in">+</button><button type="button" data-zoom="out" aria-label="Zoom out">−</button><button type="button" data-zoom="game" aria-label="Zoom to the selected game">◎</button><button type="button" data-zoom="reset" aria-label="Show the whole map">⤢</button></div><div class="loading" data-role="loading">Loading…</div><div class="tip" hidden></div></div>
+      <p class="map-note" data-role="mapnote"></p>
+      <div class="panel" style="display:grid;gap:8px"><span class="label">10 nearest neighbours (cosine similarity)</span><div data-role="nb"></div><p class="legend-line">Shaded rows also appear in the other side's top 10. <span class="new" style="font-size:0.68rem;font-weight:700;color:var(--shared)">NEW</span> marks a game that is not in the 1,000-game set.</p></div>
+      <div class="panel" style="display:grid;gap:8px"><span class="label">Top weights in this game's vector</span><div class="bars" data-role="bars"></div></div>`;
+  }
+  $("colA").innerHTML = columnHTML();
+  $("colB").innerHTML = columnHTML();
+
+  const maps = {};
+  for (const side of ["a", "b"]) {
+    const col = $(side === "a" ? "colA" : "colB");
+    const canvas = col.querySelector("canvas"), tip = col.querySelector(".tip");
+    const view = { k: 1, tx: 0, ty: 0 };
+    maps[side] = { col, canvas, tip, pts: null, base: null, m: null, view };
+    const zoomAt = (f, x, y) => {
+      const k = Math.min(400, Math.max(1, view.k * f)); f = k / view.k;
+      view.tx = x - (x - view.tx) * f; view.ty = y - (y - view.ty) * f; view.k = k;
+      if (k === 1) { view.tx = 0; view.ty = 0; }
+      drawMap(side);
+    };
+    const focusGame = () => {
+      const { base, m } = maps[side]; if (!base) return;
+      const r = m.pos[state.game]; if (r < 0) return;
+      const k = Math.max(view.k, m.n > 5000 ? 25 : 4), w = canvas.clientWidth, h = canvas.clientHeight;
+      view.k = k; view.tx = w / 2 - base[2 * r] * k; view.ty = h / 2 - base[2 * r + 1] * k;
+      drawMap(side);
+    };
+    col.querySelector(".zoom").addEventListener("click", (ev) => {
+      const b = ev.target.closest("button[data-zoom]"); if (!b) return;
+      const w = canvas.clientWidth / 2, h = canvas.clientHeight / 2, z = b.dataset.zoom;
+      if (z === "in") zoomAt(2, w, h); else if (z === "out") zoomAt(0.5, w, h);
+      else if (z === "game") focusGame(); else { view.k = 1; view.tx = 0; view.ty = 0; drawMap(side); }
+    });
+    canvas.addEventListener("wheel", (ev) => {
+      ev.preventDefault();
+      const r = canvas.getBoundingClientRect();
+      zoomAt(Math.exp(-ev.deltaY * (ev.deltaMode ? 0.05 : 0.0015)), ev.clientX - r.left, ev.clientY - r.top);
+    }, { passive: false });
+    const pointers = new Map();
+    let dragged = false, pinch = 0;
+    canvas.addEventListener("pointerdown", (ev) => {
+      canvas.setPointerCapture(ev.pointerId); pointers.set(ev.pointerId, [ev.clientX, ev.clientY]); dragged = false;
+      if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); }
+    });
+    canvas.addEventListener("pointermove", (ev) => {
+      const prev = pointers.get(ev.pointerId); if (!prev) return;
+      const now = [ev.clientX, ev.clientY];
+      if (pointers.size === 1) {
+        const dx = now[0] - prev[0], dy = now[1] - prev[1];
+        if (dragged || Math.abs(dx) + Math.abs(dy) > 3) {
+          dragged = true;
+          view.tx += dx; view.ty += dy; pointers.set(ev.pointerId, now); tip.hidden = true; drawMap(side);
+        }
+      } else {
+        pointers.set(ev.pointerId, now); dragged = true;
+        const [a, b] = [...pointers.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), r = canvas.getBoundingClientRect();
+        if (pinch) zoomAt(d / pinch, (a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top);
+        pinch = d;
+      }
+    });
+    const lift = (ev) => { pointers.delete(ev.pointerId); if (pointers.size < 2) pinch = 0; };
+    canvas.addEventListener("pointerup", lift); canvas.addEventListener("pointercancel", lift);
+    canvas.addEventListener("dblclick", (ev) => { const r = canvas.getBoundingClientRect(); zoomAt(2, ev.clientX - r.left, ev.clientY - r.top); });
+    const pick = (ev) => {
+      const { pts, m } = maps[side]; if (!pts) return -1;
+      const r = canvas.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+      let best = -1, bd = 64;
+      for (let i = 0; i < m.n; i++) { const dx = pts[2 * i] - x, dy = pts[2 * i + 1] - y, d = dx * dx + dy * dy; if (d < bd) { bd = d; best = i; } }
+      return best < 0 ? -1 : m.rows[best];
+    };
+    canvas.addEventListener("click", (ev) => { if (dragged) return; const g = pick(ev); if (g >= 0) select(g); });
+    canvas.addEventListener("mousemove", (ev) => {
+      if (pointers.size) return;
+      const g = pick(ev);
+      if (g < 0) { tip.hidden = true; return; }
+      const r = canvas.getBoundingClientRect();
+      tip.textContent = D.titles[g]; tip.style.left = (ev.clientX - r.left) + "px"; tip.style.top = (ev.clientY - r.top) + "px"; tip.hidden = false;
+    });
+    canvas.addEventListener("mouseleave", () => { tip.hidden = true; });
+    col.addEventListener("click", (ev) => { const b = ev.target.closest("button[data-game]"); if (b) select(+b.dataset.game); });
+  }
+
+  function neighbours(m, g) {
+    const r = m.pos[g]; if (r < 0) return null;
+    return Array.from({ length: K }, (_, j) => ({ g: m.nb[r * K + j], sim: m.sim[r * K + j] / 32767 }));
+  }
+
+  function drawMap(side) {
+    const { canvas, m } = maps[side]; if (!m) return;
+    const dpr = window.devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h) return;
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+    const n = m.n, xy = m.xy;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < n; i++) { const x = xy[2 * i], y = xy[2 * i + 1]; if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+    const pad = 14, span = Math.max(maxX - minX, maxY - minY) || 1, sc = (Math.min(w, h) - 2 * pad) / span;
+    const ox = (w - (maxX - minX) * sc) / 2, oy = (h - (maxY - minY) * sc) / 2;
+    const base = new Float32Array(2 * n), pts = new Float32Array(2 * n), { k, tx, ty } = maps[side].view;
+    for (let i = 0; i < n; i++) {
+      base[2 * i] = ox + (xy[2 * i] - minX) * sc; base[2 * i + 1] = h - (oy + (xy[2 * i + 1] - minY) * sc);
+      pts[2 * i] = base[2 * i] * k + tx; pts[2 * i + 1] = base[2 * i + 1] * k + ty;
+    }
+    maps[side].base = base; maps[side].pts = pts;
+    const big = n > 5000, rad = big ? Math.min(3, 0.9 * Math.sqrt(k)) : Math.min(5, 2.6 * Math.cbrt(k));
+    const bySize = state.dots === "reviews";
+    ctx.globalAlpha = big ? (bySize ? 0.55 : 0.35) : 0.6;
+    if (bySize) {
+      const order = m.popOrder || (m.popOrder = Uint32Array.from({ length: n }, (_, i) => i).sort((x, y) => D.ratingCount[m.rows[x]] - D.ratingCount[m.rows[y]]));
+      for (const i of order) {
+        const rr = rad * popScale(m.rows[i], big);
+        ctx.fillStyle = D.clusterColors[m.cluster[i]];
+        if (rr < 1.5) ctx.fillRect(pts[2 * i] - rr, pts[2 * i + 1] - rr, 2 * rr, 2 * rr);
+        else { ctx.beginPath(); ctx.arc(pts[2 * i], pts[2 * i + 1], rr, 0, 6.2832); ctx.fill(); }
+      }
+    } else {
+      const byColor = D.clusterColors.map(() => []);
+      for (let i = 0; i < n; i++) byColor[m.cluster[i]].push(i);
+      byColor.forEach((list, c) => {
+        ctx.fillStyle = D.clusterColors[c];
+        if (big) { for (const i of list) ctx.fillRect(pts[2 * i] - rad, pts[2 * i + 1] - rad, 2 * rad, 2 * rad); }
+        else { ctx.beginPath(); for (const i of list) { ctx.moveTo(pts[2 * i] + rad, pts[2 * i + 1]); ctx.arc(pts[2 * i], pts[2 * i + 1], rad, 0, 6.2832); } ctx.fill(); }
+      });
+    }
+    ctx.globalAlpha = 1;
+    const nb = neighbours(m, state.game), r = m.pos[state.game];
+    if (k > 1 || bySize) {
+      const visible = [];
+      for (let i = 0; i < n; i++) { const x = pts[2 * i], y = pts[2 * i + 1]; if (x >= 0 && x <= w && y >= 0 && y <= h) visible.push(i); }
+      let labelled = visible;
+      if (visible.length > 150) labelled = bySize ? visible.sort((x, y) => D.ratingCount[m.rows[y]] - D.ratingCount[m.rows[x]]).slice(0, k > 1 ? 40 : 25) : [];
+      const font = css("--font-body"), muted = css("--muted"), fgc = css("--fg"), halo = css("--map-bg");
+      const marked = new Set(nb && k >= 3 ? [r, ...nb.map(({ g }) => m.pos[g])] : []);
+      ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+      const drawn = labelled.filter((i) => !marked.has(i));
+      if (bySize) drawn.sort((x, y) => popT[m.rows[y]] - popT[m.rows[x]]);
+      const placed = [];
+      for (const i of drawn) {
+        const g = m.rows[i], t = bySize ? popT[g] : 0;
+        // Label size follows the dot: 11px for the long tail up to 11 + 4.5 × scale px for the most-reviewed game.
+        const size = bySize ? Math.round(11 + state.boost * 4.5 * t) : 11;
+        ctx.font = `${size >= 16 ? 700 : 400} ${size}px ${font}`;
+        const x = pts[2 * i] + rad * (bySize ? popScale(g, big) : 1) + 4, y = pts[2 * i + 1];
+        if (bySize) {
+          // Most popular first; a label that would overlap one already drawn is skipped.
+          const box = [x - 2, y - size * 0.6, x + ctx.measureText(D.titles[g]).width + 2, y + size * 0.6];
+          if (placed.some((p) => box[0] < p[2] && box[2] > p[0] && box[1] < p[3] && box[3] > p[1])) continue;
+          placed.push(box);
+        }
+        if (size >= 14) { ctx.lineWidth = Math.max(3, size / 5); ctx.strokeStyle = halo; ctx.strokeText(D.titles[g], x, y); }
+        ctx.fillStyle = size >= 14 ? fgc : muted; ctx.fillText(D.titles[g], x, y);
+      }
+    }
+    if (!nb) return;
+    const fg = css("--fg"), bg = css("--map-bg"), sideColor = css(side === "a" ? "--accent" : "--b");
+    ctx.lineWidth = 1.5;
+    for (const { g } of nb) {
+      const i = m.pos[g];
+      ctx.fillStyle = D.clusterColors[m.cluster[i]]; ctx.strokeStyle = fg;
+      ctx.beginPath(); ctx.arc(pts[2 * i], pts[2 * i + 1], 4.5, 0, 6.2832); ctx.fill(); ctx.stroke();
+    }
+    ctx.fillStyle = D.clusterColors[m.cluster[r]]; ctx.beginPath(); ctx.arc(pts[2 * r], pts[2 * r + 1], 6, 0, 6.2832); ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.beginPath(); ctx.arc(pts[2 * r], pts[2 * r + 1], 9, 0, 6.2832); ctx.stroke();
+    ctx.lineWidth = 2; ctx.strokeStyle = sideColor; ctx.beginPath(); ctx.arc(pts[2 * r], pts[2 * r + 1], 10.5, 0, 6.2832); ctx.stroke();
+    if (k >= 3) {
+      ctx.font = `600 12px ${css("--font-body")}`; ctx.textBaseline = "middle"; ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.fillStyle = fg;
+      for (const i of [r, ...nb.map(({ g }) => m.pos[g])]) {
+        const x = pts[2 * i] + (i === r ? 14 : 8), y = pts[2 * i + 1], t = D.titles[m.rows[i]];
+        ctx.strokeText(t, x, y); ctx.fillText(t, x, y);
+      }
+    }
+  }
+
+  async function renderColumn(side) {
+    const key = state[side], col = maps[side].col, other = state[side === "a" ? "b" : "a"];
+    const [build, name] = key.split(":");
+    col.querySelector('[data-role="name"]').textContent = `${side.toUpperCase()}: ${label(key)}`;
+    col.querySelector('[data-role="desc"]').textContent = DESC[name] || "";
+    const loading = col.querySelector('[data-role="loading"]');
+    loading.hidden = false;
+    let m, mo;
+    try { [m, mo] = await Promise.all([method(key), method(other)]); }
+    catch (e) { loading.textContent = `Could not load ${key}: ${e.message}`; return; }
+    if (state[side] !== key) return;
+    loading.hidden = true;
+    if (maps[side].m !== m) Object.assign(maps[side].view, { k: 1, tx: 0, ty: 0 });
+    maps[side].m = m;
+    const r = m.pos[state.game];
+    let clusterNote = "";
+    if (r >= 0) {
+      const c = m.cluster[r]; let size = 0; for (let i = 0; i < m.n; i++) if (m.cluster[i] === c) size++;
+      clusterNote = `<span>This game: cluster <b>${c}</b> of <b>${size.toLocaleString()}</b> games</span>`;
+    }
+    col.querySelector('[data-role="stats"]').innerHTML =
+      `<span>Games <b>${m.n.toLocaleString()}</b></span><span>Pairs <b>${fmt(m.pairMutual)}</b></span><span>Genre <b>${fmt(m.genreJaccard)}</b></span>` +
+      `<span>Map keeps <b>${pct(m.keptTsne)}</b> of neighbours</span>${clusterNote}`;
+    col.querySelector('[data-role="mapnote"]').textContent = `t-SNE layout of ${m.n.toLocaleString()} games: neighbours stay close, but the distance between islands means little. Colours are this run's 12 K-Means clusters. The ring is the selected game; outlined dots are its neighbours. With dot size by reviews, bigger dots have more Steam reviews and the most-reviewed games in view are labelled. Scroll, pinch or double-click to zoom and drag to pan; ◎ jumps to the selected game, ⤢ shows the whole map.`;
+    const mine = neighbours(m, state.game), theirs = neighbours(mo, state.game);
+    const theirSet = new Set((theirs || []).map((x) => x.g));
+    const nbEl = col.querySelector('[data-role="nb"]');
+    if (!mine) {
+      const why = build === "1k" ? "This game is not one of the 1,000 in the 1k build." : "This game has no vector here: it has no Steam tags, so tag-only methods skip it.";
+      nbEl.innerHTML = `<p class="empty">${why}</p>`;
+    } else {
+      nbEl.innerHTML = `<ol class="nb">${mine.map((n, j) =>
+        `<li class="${theirSet.has(n.g) ? "shared" : ""}"><span class="rank num">${j + 1}</span><span><button type="button" data-game="${n.g}">${esc(D.titles[n.g])}</button></span><span class="new">${D.in1k[n.g] ? "" : "NEW"}</span><span class="num">${fmt(n.sim, 3)}</span></li>`).join("")}</ol>`;
+    }
+    const bars = col.querySelector('[data-role="bars"]');
+    if (!m.tagIdx) bars.innerHTML = `<p class="empty">No tag weights: this vector is the 384-number text embedding.</p>`;
+    else if (r < 0) bars.innerHTML = "";
+    else {
+      const ws = [];
+      for (let j = 0; j < TT; j++) { const w = m.tagW[r * TT + j] / 65535; if (w > 0) ws.push({ tag: D.tags[m.tagIdx[r * TT + j]], w }); }
+      bars.innerHTML = (name === "hybrid_semantic" ? `<p class="empty">Tag half only; the text half is the 384-number embedding.</p>` : "") + ws.map((t) =>
+        `<div class="bar"><span class="name" title="${esc(t.tag)}">${esc(t.tag)}</span><span class="track"><span class="fill" style="width:${(100 * t.w).toFixed(1)}%"></span></span><span class="num">${fmt(t.w, 2)}</span></div>`).join("");
+    }
+    drawMap(side);
+  }
+
+  function renderGame() {
+    const g = state.game;
+    $("gameTitle").textContent = D.titles[g];
+    $("gameBadge").innerHTML = D.in1k[g] ? `<span class="badge">in the 1k set</span>` : `<span class="badge out">90k only</span>`;
+    $("gameGenres").textContent = [...D.genres[g]].map((c) => D.genreNames[c.charCodeAt(0) - 65]).join(" · ");
+    const chips = [];
+    for (let j = 0; j < RK; j++) { const t = D.rawIdx[g * RK + j]; if (t === 65535) break; chips.push(`<span class="chip">${esc(D.tags[t])}<span class="num">${D.rawVotes[g * RK + j].toLocaleString()}</span></span>`); }
+    $("gameTags").innerHTML = chips.length ? chips.join("") : `<span class="empty">No Steam tags in this snapshot.</span>`;
+  }
+
+  function renderScores() {
+    const rows = M.map((k) => {
+      const m = D.methods[k], cls = k === state.a ? "is-a" : k === state.b ? "is-b" : "";
+      return `<tr class="${cls}"><td class="num">${label(k)}${m.method === D.configMethod ? " *" : ""}</td><td class="num">${m.n.toLocaleString()}</td><td class="num">${fmt(m.pairMutual)}</td><td class="num">${fmt(m.pairOneWay)}</td><td class="num">${m.pairsFound}</td><td class="num">${fmt(m.genreJaccard)}</td><td class="num">${pct(m.keptTsne)}</td></tr>`;
+    }).join("");
+    $("scoreTable").innerHTML = `<thead><tr><th>Run</th><th class="num">Games</th><th class="num">Pairs mutual</th><th class="num">One-way</th><th class="num">Pairs used</th><th class="num">Genre</th><th class="num">Map kept</th></tr></thead><tbody>${rows}</tbody>`;
+  }
+
+  function renderDelta() {
+    const cell = (a, b, d = 2) => { const v = b - a, c = Math.abs(v) < 0.005 ? "" : v > 0 ? "up" : "down"; return `<td class="num">${fmt(a, d)} → ${fmt(b, d)}</td><td class="num ${c}">${v > 0 ? "+" : ""}${fmt(v, d)}</td>`; };
+    const rows = methodNames.map((n) => {
+      const s = D.methods["1k:" + n], b = D.methods["90k:" + n];
+      return `<tr><td class="num">${n}${n === D.configMethod ? " *" : ""}</td>${cell(s.pairMutual, b.pairMutual)}${cell(s.genreJaccard, b.genreJaccard)}${cell(s.keptTsne, b.keptTsne)}<td class="num">${pct(b.vs1k)}</td><td class="num">${pct(b.newcomers)}</td></tr>`;
+    }).join("");
+    $("deltaTable").innerHTML = `<thead><tr><th>Method</th><th class="num">Pairs mutual</th><th></th><th class="num">Genre</th><th></th><th class="num">Map kept</th><th></th><th class="num">Same as 1k</th><th class="num">New games</th></tr></thead><tbody>${rows}</tbody>`;
+    const best = (b) => methodNames.reduce((x, y) => D.methods[`${b}:${y}`].genreJaccard > D.methods[`${b}:${x}`].genreJaccard ? y : x);
+    const h = D.methods["90k:hybrid_embed"], hs = D.methods["90k:hybrid_semantic"], v = D.methods["90k:votes_max"];
+    $("findings").innerHTML = [
+      `Going to 90k replaces most neighbours: a 1k game keeps only ${methodNames.map((n) => `${pct(D.methods["90k:" + n].vs1k)} (${n})`).join(", ")} of its top 10, and ${pct(v.newcomers)} of the votes_max 90k top 10 are games the 1k set never had.`,
+      `Best genre agreement: <b>${best("1k")}</b> on 1k, <b>${best("90k")}</b> on 90k.`,
+      `hybrid_embed goes from pairs ${fmt(D.methods["1k:hybrid_embed"].pairMutual)} to ${fmt(h.pairMutual)} and genre ${fmt(D.methods["1k:hybrid_embed"].genreJaccard)} to ${fmt(h.genreJaccard)}; hybrid_max (votes_max in place of votes_log) scores pairs ${fmt(D.methods["90k:hybrid_max"].pairMutual)}, genre ${fmt(D.methods["90k:hybrid_max"].genreJaccard)} on 90k; hybrid_semantic, which also reaches the ${(hs.n - h.n).toLocaleString()} tagless games, scores pairs ${fmt(hs.pairMutual)}, genre ${fmt(hs.genreJaccard)}.`,
+      `With 90 times more games, the t-SNE map keeps ${pct(v.keptTsne)} of votes_max neighbours against ${pct(D.methods["1k:votes_max"].keptTsne)} on 1k.`,
+    ].map((s) => `<li>${s}</li>`).join("");
+  }
+
+  function renderHeat() {
+    const ia = M.indexOf(state.a), ib = M.indexOf(state.b), accent = css("--accent"), panel = css("--panel");
+    const head = `<thead><tr><th></th>${M.map((m) => `<th class="rot">${label(m)}</th>`).join("")}</tr></thead>`;
+    const body = M.map((r, i) => `<tr><th class="rowh">${label(r)}</th>${M.map((c, j) => {
+      const v = D.overlap[i][j], p = Math.round(v * 85);
+      const pick = (i === ia && j === ib) || (i === ib && j === ia) ? " pick" : "";
+      return `<td class="cell${pick}" data-a="${r}" data-b="${c}" title="${label(r)} vs ${label(c)}: ${fmt(v)}" style="background:color-mix(in srgb, ${accent} ${p}%, ${panel});color:${v > 0.6 ? panel : "inherit"}">${fmt(v)}</td>`;
+    }).join("")}</tr>`).join("");
+    $("heat").innerHTML = head + `<tbody>${body}</tbody>`;
+  }
+  $("heat").addEventListener("click", (ev) => {
+    const td = ev.target.closest("td.cell"); if (!td || td.dataset.a === td.dataset.b) return;
+    state.a = td.dataset.a; state.b = td.dataset.b; renderAll();
+  });
+
+  function save() { try { localStorage.setItem("tvl90k-state", JSON.stringify(state)); } catch (e) {} }
+  function renderAll() {
+    for (const [s, k] of [["A", state.a], ["B", state.b]]) { const [b, m] = k.split(":"); $("build" + s).value = b; $("method" + s).value = m; }
+    $("dotSize").value = state.dots; $("boost").value = state.boost; $("boostVal").textContent = `${state.boost}×`; $("boost").disabled = state.dots !== "reviews";
+    renderGame(); renderColumn("a"); renderColumn("b"); renderScores(); renderHeat(); save();
+  }
+  function select(g) { state.game = g; renderAll(); }
+  for (const s of ["A", "B"]) {
+    const update = () => { state[s.toLowerCase()] = `${$("build" + s).value}:${$("method" + s).value}`; renderAll(); };
+    $("build" + s).addEventListener("change", update); $("method" + s).addEventListener("change", update);
+  }
+  $("dotSize").addEventListener("change", (e) => { state.dots = e.target.value; $("boost").disabled = state.dots !== "reviews"; save(); drawMap("a"); drawMap("b"); });
+  $("boost").addEventListener("input", (e) => { state.boost = +e.target.value; $("boostVal").textContent = `${state.boost}×`; save(); drawMap("a"); drawMap("b"); });
+  $("swap").addEventListener("click", () => { [state.a, state.b] = [state.b, state.a]; renderAll(); });
+  $("randomGame").addEventListener("click", () => select(oneK[Math.floor(Math.random() * oneK.length)]));
+  $("randomAny").addEventListener("click", () => select(Math.floor(Math.random() * N)));
+
+  const input = $("gameSearch"), list = $("results");
+  let hits = [], active = 0;
+  function search(q) {
+    q = q.trim().toLowerCase(); if (!q) return [];
+    const found = [];
+    for (let i = 0; i < N; i++) { const p = lower[i].indexOf(q); if (p >= 0) found.push([lower[i] === q ? 0 : p === 0 ? 1 : 2, -D.ratingCount[i], i]); }
+    found.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+    return found.slice(0, 12).map((x) => x[2]);
+  }
+  function showHits() {
+    list.hidden = !hits.length; input.setAttribute("aria-expanded", String(!!hits.length));
+    list.innerHTML = hits.map((g, j) => `<li role="option"><button type="button" data-hit="${g}" class="${j === active ? "on" : ""}"><span>${esc(D.titles[g])}</span><span class="meta">${D.in1k[g] ? "1k · " : ""}${D.ratingCount[g].toLocaleString()} reviews</span></button></li>`).join("");
+  }
+  function choose(g) { hits = []; showHits(); input.value = ""; select(g); }
+  input.addEventListener("input", () => { hits = search(input.value); active = 0; showHits(); });
+  input.addEventListener("keydown", (ev) => {
+    if (!hits.length) return;
+    if (ev.key === "ArrowDown") { active = (active + 1) % hits.length; showHits(); ev.preventDefault(); }
+    else if (ev.key === "ArrowUp") { active = (active - 1 + hits.length) % hits.length; showHits(); ev.preventDefault(); }
+    else if (ev.key === "Enter") { choose(hits[active]); ev.preventDefault(); }
+    else if (ev.key === "Escape") { hits = []; showHits(); }
+  });
+  list.addEventListener("mousedown", (ev) => { const b = ev.target.closest("button[data-hit]"); if (b) { ev.preventDefault(); choose(+b.dataset.hit); } });
+  input.addEventListener("blur", () => setTimeout(() => { hits = []; showHits(); }, 100));
+
+  new ResizeObserver(() => { drawMap("a"); drawMap("b"); }).observe(document.querySelector(".cols"));
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => renderAll());
+  new MutationObserver(() => renderAll()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  status.textContent = `${N.toLocaleString()} games loaded. Method data loads when you pick it.`;
+  renderDelta();
+  renderAll();
+})();
+</script>
+</body>
+</html>
