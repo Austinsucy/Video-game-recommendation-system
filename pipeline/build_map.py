@@ -168,7 +168,7 @@ def separate_collisions(
         placed = out.copy()
         changed = False
         for g in np.flatnonzero(sizes >= 2):
-            members = by_group[bounds[g] : bounds[g + 1]]  # ascending row index, as flatnonzero gave
+            members = by_group[bounds[g] : bounds[g + 1]]
             members = members[np.argsort(game_ids[members], kind="stable")]
             centre = out[members].mean(axis=0)
             # Chord between ring neighbours is 2 r sin(pi/k); the factor adds float margin.

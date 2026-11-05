@@ -49,7 +49,6 @@ VIEWER = Path(__file__).with_name("vector_lab.html")
 @dataclass(frozen=True)
 class Build:
     label: str
-    db: Path
     corpus: TagCorpus
     store_urls: list[str | None]
     rating_counts: np.ndarray       # (n,) int64, -1 where the database has none
@@ -80,7 +79,6 @@ def load_build(label: str, db: Path, cfg: dict) -> Build:
         conn.close()
     return Build(
         label=label,
-        db=Path(db),
         corpus=corpus,
         store_urls=[r[0] for r in rows],
         rating_counts=np.array([-1 if r[1] is None else r[1] for r in rows], dtype=np.int64),
@@ -240,8 +238,8 @@ def write_lab(
         "randomGenreJaccard": {first.label: C.random_genre_jaccard(first.genres, cfg["random_seed"], C.GENRE_K)},
         "shared": shared, "sharedFile": "shared.bin.gz.b64.txt", "methods": {},
     }
+    assert cfg["cluster_count"] <= 256, "clusters are stored as uint8"
     for key, r in zip(keys, runs):
-        assert cfg["cluster_count"] <= 256, "clusters are stored as uint8"
         arrays = [
             ("rows", r.rows.astype(np.uint32)),
             ("nb", r.neighbors[:, :SHOW_K].astype(np.uint32)),
