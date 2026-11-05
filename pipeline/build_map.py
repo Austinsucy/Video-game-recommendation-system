@@ -31,6 +31,7 @@ from scipy.spatial import cKDTree
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from threadpoolctl import threadpool_limits
 
 from backend.app.db import DB_PATH
 from pipeline import publish
@@ -194,8 +195,12 @@ def separate_collisions(
 
 
 def assign_clusters(vectors: np.ndarray, n_clusters: int, n_init: int, seed: int) -> np.ndarray:
-    """K-Means on the full weighted vectors, not on the 2D coordinates."""
-    return KMeans(n_clusters=n_clusters, random_state=seed, n_init=n_init).fit_predict(vectors)
+    """K-Means on the full weighted vectors, not on the 2D coordinates.
+
+    One OpenMP thread (REL 2): with more, the labels can change between runs on the same input.
+    """
+    with threadpool_limits(limits=1, user_api="openmp"):
+        return KMeans(n_clusters=n_clusters, random_state=seed, n_init=n_init).fit_predict(vectors)
 
 
 def cluster_rows(n_clusters: int, colors: list[str]) -> list[dict]:
