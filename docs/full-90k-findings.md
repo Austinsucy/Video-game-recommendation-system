@@ -42,18 +42,46 @@ This takes about 1.5 minutes and writes a 337 MB `data/games.db`, which is
 gitignored because it is over GitHub's 100 MB limit. The 1k comparison
 database is `data/games.db` from `main` at commit `d6160f0`.
 
+## How to rebuild the lab
+
+The pipeline builds the lab data itself. With the 1k database and the 90k
+database from the step above:
+
+```
+python -m pipeline.vector_lab --small <1k games.db> --full <90k games.db> --device cuda
+```
+
+This writes `data/artifacts/vector_lab/`: `index.html` (the page, from
+`pipeline/vector_lab.html`), `meta.json` with every score, and one compressed
+data file per build and method. Serve the folder over HTTP to view it. On an
+RTX 5080 the full run takes about 37 minutes, most of it t-SNE on the 90k
+maps. `--device` defaults to `vectorization.embedding_device` (`cpu`).
+
+The export always runs the six methods below on both builds, with the 90k
+database as the game list for both. It scores pairs against
+`config/similar_pairs.yaml`.
+
 ## What was run
 
-The config is `config/map_config.yaml` unchanged, with these exceptions:
+`pipeline.vector_lab` runs the normal map build (`build_map_from_vectors`)
+for each build and method, with `config/map_config.yaml` unchanged except:
 
-| Setting | 1k build | 90k build | Why |
+| Setting | Lab | Published map | Why |
 |---|---|---|---|
-| Text for embeddings | `long_description`, falling back to `description` | same | The richer text was the point of the test |
-| Embedding device | GPU (RTX 5080) | GPU | 89,618 descriptions in 49 s; `_embed` normally forces the CPU (REL 2) |
-| Neighbours | Exact cosine top 15 | Exact cosine top 15, in blocks on the GPU | `neighbor_indices` builds an n x n matrix, about 64 GB at 90k |
-| 2D layout | Pipeline's scikit-learn t-SNE | openTSNE, same perplexity, metric, PCA start and seed | scikit-learn t-SNE does not fit 90k games in 24 GB |
-| Collision spreading | Skipped | Skipped | `separate_collisions` is O(n^2) |
-| K-Means | `assign_clusters`, k = 12, seed 42 | same | |
+| Text for embeddings | `long_description`, falling back to `description` per game (`--text-field`) | `description` | The richer text was the point of the test |
+| Embedding device | GPU (`--device cuda`) | CPU | 89,618 descriptions in 49 s on an RTX 5080. `build_map --publish` refuses a non-CPU device (REL 2) |
+| Collision spreading | 1k only | Yes | The minimum spacing cannot be met at 90k density, so maps over the CON 3 cap skip it |
+
+Everything else is the pipeline's normal path. Neighbours are exact cosine
+top 15, computed in blocks of 512 rows so 90k games fit in memory. The layout
+is the pipeline's scikit-learn t-SNE (205 s and 3.9 GB for 72,746 games).
+K-Means is `assign_clusters` with k = 12 and seed 42.
+
+Two full runs gave byte-identical output for every build and method except
+the 90k `semantic` clusters, which differed between runs (adjusted Rand index
+0.999). Multithreaded K-Means can change its labels between runs on the same
+vectors, so `assign_clusters` now runs on one thread. Two single-thread runs on
+those vectors gave identical labels, and the 1k published build is unchanged.
 
 The embedding model reads only the first 256 word pieces of each text. At 90k
 the median description is 226 word pieces, 42% are longer than 256, and about
@@ -65,14 +93,17 @@ published map.
 
 ## Methods compared
 
-| Method | In `vectorize.py` | Weight of each tag the game has | Tagless games |
-|---|---|---|---|
-| `votes_max` | Yes (map v2) | votes / votes on the game's top tag | Left out |
-| `desc_embed` | Yes | 0.4 + 0.6 x closeness of the tag to the description | Left out |
-| `hybrid_embed` | Yes | 0.7 x `votes_log` + 0.3 x `desc_embed` | Left out |
-| `hybrid_max` | No | 0.7 x `votes_max` + 0.3 x `desc_embed` | Left out |
-| `semantic` | No | No tags: the 384-number description embedding | Included |
-| `hybrid_semantic` | No | `votes_max` and `semantic` side by side, so similarity = 0.7 x tag cosine + 0.3 x text cosine | Included |
+All six are methods in `pipeline/vectorize.py`, so `build_map --method` and
+`compare_vectors` can use them too.
+
+| Method | Weight of each tag the game has | Tagless games |
+|---|---|---|
+| `votes_max` (map v2) | votes / votes on the game's top tag | Left out |
+| `desc_embed` | 0.4 + 0.6 x closeness of the tag to the description | Left out |
+| `hybrid_embed` | 0.7 x `votes_log` + 0.3 x `desc_embed` | Left out |
+| `hybrid_max` | 0.7 x `votes_max` + 0.3 x `desc_embed` | Left out |
+| `semantic` | No tags: the 384-number description embedding | Included |
+| `hybrid_semantic` | `votes_max` and `semantic` side by side, so similarity = 0.7 x tag cosine + 0.3 x text cosine | Included |
 
 `votes_log` is log(1 + votes) / log(1 + top tag's votes). No method here uses
 IDF.
@@ -97,7 +128,7 @@ Genre is the mean Jaccard overlap of Steam genres with the top 10. It rises at
 methods because many genre names are also tags. Do not read it as quality.
 
 The share of each game's 15 true neighbours that stay among its 15 closest
-map points falls from 30 to 51% at 1k to 22 to 33% at 90k.
+map points falls from 30 to 51% at 1k to 24 to 34% at 90k.
 
 ## Findings
 
@@ -157,11 +188,11 @@ reads titles. `semantic` has far fewer such groups (0.2% of games against
   "unknown". Any code that casts it to an unsigned type turns it into
   4,294,967,295.
 * **Duplicate titles.** 890 normalised titles appear more than once (store editions and
-  bundles). `compare_vectors.resolve_pairs` keeps the last row with a title,
-  which matched the pair "EA SPORTS FC 25" to a tagless edition listing
-  (game_id 366) instead of the base game (game_id 362). This experiment's
-  scoring picks the listing with the most tag votes instead. The 1k build has
-  no duplicate titles, so the pipeline's published scores are not affected.
+  bundles). `compare_vectors.resolve_pairs` used to keep the last row with a
+  title, which matched the pair "EA SPORTS FC 25" to a tagless edition listing
+  (game_id 366) instead of the base game (game_id 362). It now picks the
+  listing with the most tag votes, then the lowest game_id. The 1k build has
+  no duplicate titles, so its scores do not change.
 
 ### K-Means at 90k
 
@@ -176,9 +207,9 @@ puzzle-platformers, local-multiplayer party games.
 
 ## Open questions for the team
 
-1. Add `hybrid_max` and `hybrid_semantic` to `vectorize.py` and score them on
-   the 1k build with the 100 pairs? On the 1k build, `hybrid_semantic` ties
-   `votes_max` (0.89 / 0.92).
+1. Make `hybrid_semantic` the map method? It is now in `vectorize.py`. On the
+   1k build with the 100 pairs it ties `votes_max` (0.89 mutual), and at 90k it
+   is the best method.
 2. Store Steam app IDs in `similar_pairs.yaml` instead of titles, so
    duplicate titles cannot pick the wrong listing (Austin).
 3. If the map ever grows past the 1,000 most-reviewed games: re-rank
