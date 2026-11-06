@@ -1,24 +1,38 @@
 # =============================================================================
-# Goon Squad - single configuration file (MAINT 2)
+# THE ONE SETTINGS FILE
 #
-# Everything the map pipeline is allowed to tune lives here. Changing a weight
-# or the vocabulary must NOT require editing any code.
+# Our MAINT 2 requirement says every tunable thing lives in a single config
+# file, so changing a weight or a tag mapping never means editing Python.
+# This is that file.
 #
-# STATUS: the `vocabulary` and `aliases` sections below are a STARTER STUB
-# written by Ronnie so the import process could be built and tested.
-# Austin + Kayne own the real contents: which features exist, which raw Steam
-# tag maps to which category, and what the category weights should be.
-# Extend freely - the importer validates this file and reports what it could
-# not map, so nothing silently disappears.
+# If you are new to the project, the sections go:
+#   1. dataset      where the source CSV is
+#   2. selection    which ~1000 games we pick out of the 89,618 available
+#   3. fields       which CSV column becomes which database column
+#   4. weights      how much each feature category counts for the ML
+#   5. vocabulary   the official list of features
+#   6. aliases      raw text from Steam -> one of those features
+#   plus vectorization and layout, which Kayne's map pipeline reads
+#
+# One thing to know: publish_map() copies this whole file into
+# map_versions.config_snapshot_json every time a map is published. So every
+# map we ever build carries a permanent record of the exact settings that
+# produced it. That is why it is worth keeping this file tidy.
+#
+# WHO OWNS WHAT
+#   Ronnie   dataset, selection, fields
+#   Austin   vocabulary, aliases, which games we include
+#   Kayne    category_weights, cluster_count, random_seed
 #
 # 2026-11-02 (Austin): first vocabulary pass. Added 15 features and 64 aliases
 # for the most common unmapped tags. Art style, mood, content warnings and
 # business tags (Indie, Atmospheric, Pixel Graphics, Violent...) stay
-# display-only on purpose. Takes effect only after `python -m pipeline.ingest
+# display-only on purpose. "Tactical" stays display-only too: it covers both
+# tactical shooters and tactics games (docs/decisions.md, decision 6). Takes effect only after `python -m pipeline.ingest
 # --reset`; published map v1 is unchanged.
 # =============================================================================
 
-map_version: "v1"
+map_version: "v2"
 random_seed: 42          # REL 2: every randomised step in the pipeline uses this
 cluster_count: 12        # placeholder - Austin/Kayne decide
 kmeans_n_init: 10        # K-Means restarts from different seeded centroids; the lowest-inertia run wins
@@ -35,31 +49,42 @@ dataset:
 selection:
   target_count: 1000                  # CON 3 caps the published map at 1100
 
-  # --- HOW THE 1000 ARE CHOSEN -----------------------------------------------
-  # "popular_recent"  = newest years first, most reviewed      <- Ron's answer
-  # "popular_pre2019" = <= max_year only, most reviewed        <- matches CON 3
+  # HOW WE CHOOSE THE 1000
+  #   popular_recent   newest years first, most reviewed  <- what we use now
+  #   popular_pre2019  only <= max_year, most reviewed    <- what CON 3 says
   #
-  # !! These two disagree. CON 3 of the NFR document says the published map is
-  # !! "approximately 1,000 mostly pre-2019 games". Flip this one value to
-  # !! switch; nothing else changes.
+  # HEADS UP: these two disagree with each other. CON 3 in the NFR document
+  # says the map is "approximately 1,000 mostly pre-2019 games", but we are
+  # currently building from 2019 onward. Changing this one word and re-running
+  # the import switches it. Still needs a team decision.
   mode: "popular_recent"
 
-  max_year: 2018                      # only used when mode == popular_pre2019
-  min_year: 2019                      # only used when mode == popular_recent
-  rank_by: "num_reviews_total"        # deterministic, fully populated
-  tie_breaker: "title"                # REL 2: makes the pick reproducible
+  max_year: 2018                      # only used by popular_pre2019
+  min_year: 2019                      # only used by popular_recent
 
-  # DATA 1 minimums
+  # We sort by this and take the top N. It has to be a column that is filled
+  # in for every game, otherwise the sort is meaningless.
+  rank_by: "num_reviews_total"
+
+  # When two games tie on review count, we fall back to alphabetical. Without
+  # a tie-breaker the order would depend on how pandas happened to sort that
+  # day, and two people running the import could get different 1000 games.
+  # REL 2 would be impossible.
+  tie_breaker: "title"
+
+  # DATA 1 minimums. A game needs at least this much information or we skip it.
   min_genres: 1
   min_tags: 3
 
-  # Raw `genres` values that are NOT games. Set to [] to keep them.
-  # Ron's call was to keep them, so this list is empty by default.
+  # Steam's "genres" column includes things that are not games at all
+  # (Accounting, Utilities, Audio Production). Listing them here drops those
+  # rows entirely. Currently empty because the team decided to keep them.
   exclude_genres: []
 
-  # Raw `genres` values that are content warnings or business models rather
-  # than genres. These are kept on the game but recorded as display-only
-  # `tag` features so they do not get weighted as genres.
+  # These ARE in Steam's genres column but they are not really genres. They
+  # are content warnings or business models. We still record them on the game,
+  # but as display-only `tag` features so the ML does not treat "Indie" as a
+  # genre with the same importance as "RPG".
   demote_genres_to_tags:
     - "Early Access"
     - "Free To Play"
@@ -69,9 +94,10 @@ selection:
     - "Violent"
     - "Sexual Content"
 
-  # Values in Steam's `categories` column that describe how many people play.
-  # Everything else in that column is a Steam store feature (Trading Cards,
-  # Remote Play, HDR...) and is ignored.
+  # Steam's "categories" column is mostly store features we do not care about
+  # (Trading Cards, Remote Play, HDR). Only these ones say something about how
+  # many people play, so only these become multiplayer features. Anything not
+  # listed here is ignored.
   multiplayer_categories:
     "Single-player": single_player
     "Multi-player": multiplayer
@@ -88,29 +114,154 @@ selection:
     "Cross-Platform Multiplayer": cross_platform
     "Remote Play Together": remote_play_together
 
+
 # -----------------------------------------------------------------------------
-# Field mapping: our `games` column <- raw CSV column
-# Zero is Steam's "no data" sentinel on several fields, so the importer turns
-# 0 into NULL for anything listed in zero_is_missing.
+# 3. FIELDS - which CSV column becomes which database column
+#
+# This section is the answer to "where did this value come from?". Every
+# column in our `games` table is listed, with the exact CSV column it reads
+# and any conversion applied on the way in.
+#
+# The import builds its list of CSV columns to read from this section, so
+# nothing is loaded that we do not actually use. Add a mapping here and the
+# importer picks it up with no code change.
+#
+# Available transforms (defined in pipeline/ingest.py):
+#   normalise_title       lowercase, strip punctuation, collapse spaces
+#   year_from_date        pull the year out of a date string
+#   iso_date              tidy a date into YYYY-MM-DD
+#   join_list             turn ['A', 'B'] into "A, B", dropping duplicates
+#   store_url_template    build a Steam store URL from the app id
+#   minutes_to_hours      divide by 60, round to 2 dp
+#   json_dump             store the value as JSON text
+#   clean_text            trim whitespace, turn empty strings into NULL
 # -----------------------------------------------------------------------------
 fields:
-  rating_source: "pct_pos_total"          # percent positive, 0-100
+  # Not read from the CSV. This is the label we store in games.rating_scale to
+  # say what the `rating` number means, so nobody has to guess whether 85 is
+  # out of 100 or out of 5.
   rating_scale: "0-100"
-  rating_count_source: "num_reviews_total"
-  popularity_source: "num_reviews_total"
-  playtime_source: "average_playtime_forever"   # MINUTES, average over recent players
-  playtime_definition: "Steam average playtime forever (minutes), converted to hours"
-  zero_is_missing:
-    - "metacritic_score"
-    - "user_score"
-    - "average_playtime_forever"
+
+  column_sources:
+
+    title:
+      from: name
+      transform: clean_text
+      note: "Shown on screen exactly as Steam spells it."
+
+    title_search:
+      from: name
+      transform: normalise_title
+      note: "Lowercased, punctuation stripped. What we actually search on."
+
+    release_date:
+      from: release_date
+      transform: iso_date
+      note: "Full date as YYYY-MM-DD, for the info panel. Always present in our data."
+
+    release_year:
+      from: release_date
+      transform: year_from_date
+      note: >
+        Same source as release_date, kept separately so filtering by year does
+        not mean parsing 89,618 strings every import.
+
+    description:
+      from: short_description
+      transform: clean_text
+      note: "Steam's one or two sentence blurb. Max ~342 characters."
+
+    # Steam ships two long descriptions and they are identical 84% of the time.
+    # When they differ, detailed_description usually opens with store sales
+    # copy ("Shadow of the Erdtree Edition includes...") while about_the_game
+    # goes straight into the real text. So we prefer about_the_game and only
+    # fall back to detailed_description when it is missing.
+    long_description:
+      from: about_the_game
+      fallback: detailed_description
+      transform: clean_text
+      note: "Full 'About This Game' text, ~1,400 chars average. Detail view only."
+
+    # Plural on purpose. About 8% of games have more than one developer and
+    # one has 41, so calling the column `developer` would be a lie. Stored as
+    # comma-joined text because we only display these, we do not search on them.
+    developers:
+      from: developers
+      transform: join_list
+      note: "Studio name(s), comma-joined. Missing for a small number of games."
+
+    publishers:
+      from: publishers
+      transform: join_list
+      note: "Publisher name(s), comma-joined. Missing more often than developers."
+
+    cover_image_url:
+      from: header_image
+      note: "Steam's banner image. Always present in our data."
+
+    store_url:
+      from: appid
+      transform: store_url_template
+      note: "Built from the app id, not stored in the CSV directly."
+
+    playtime_hours:
+      from: average_playtime_forever
+      transform: minutes_to_hours
+      zero_is_missing: true
+      note: >
+        Steam's lifetime average playtime, in MINUTES in the source. This is an
+        average over players Steam has data for, not a how-long-to-beat figure.
+        Missing for about a third of games.
+
+    rating:
+      from: pct_pos_total
+      note: >
+        Percentage of reviews that are positive, 0 to 100. We use this instead
+        of metacritic_score (missing for 96% of games) or user_score (missing
+        for 99.96%).
+
+    rating_count:
+      from: num_reviews_total
+      note: "How many reviews that percentage is based on."
+
+    popularity:
+      from: num_reviews_total
+      note: >
+        Deliberately the same source as rating_count. Review count was the only
+        fully populated numeric signal. Swap to peak_ccu if we want popularity
+        to mean something different from review volume.
+
+    raw_tags_json:
+      from: tags
+      transform: json_dump
+      note: >
+        The untouched tag object from Steam, including vote counts. Kept
+        because game_features loses the counts, and our import rules say to
+        preserve the raw tags.
+
+  # Where each feature CATEGORY gets its values from. This is informational,
+  # the matching logic lives in ingest.py, but writing it down here means the
+  # config snapshot records it for every published map.
+  feature_sources:
+    genre:       {from: genres,                via: direct_or_alias}
+    multiplayer: {from: categories,            via: multiplayer_categories}
+    platform:    {from: [windows, mac, linux], via: boolean_columns}
+    tag:         {from: tags,                  via: fallthrough}
+    gameplay:    {from: tags,                  via: aliases}
+    mechanic:    {from: tags,                  via: aliases}
+    structure:   {from: tags,                  via: aliases}
+    theme:       {from: tags,                  via: aliases}
+    perspective: {from: tags,                  via: aliases}
+
 
 # -----------------------------------------------------------------------------
 # NOTE: only the `category_weighted` vectorization method reads these weights.
 # The other methods work on raw tag votes. Which method publishes is an open
 # team decision (GM 1).
 #
-# Category weights - Austin/Kayne tune these.
+# Category weights - Austin/Kayne tune these. `python -m pipeline.tune_weights`
+# found no weights that do better on held-out similar pairs (docs/decisions.md,
+# decision 4), so these are unchanged.
 # `tag` is 0.0 on purpose: the scrum doc says display tags must not become an
 # extra weighted category or double-count a concept already captured elsewhere.
 # -----------------------------------------------------------------------------
@@ -130,7 +281,7 @@ category_weights:
 # `python -m pipeline.compare_vectors`, then set `method` to the winner.
 # -----------------------------------------------------------------------------
 vectorization:
-  method: "votes_log_idf"      # PLACEHOLDER until Kayne/Austin pick from the comparison
+  method: "votes_max"          # chosen 2026-11-02 for map v2 (docs/decisions.md, decision 4); v1 used votes_log_idf
   description_floor: 0.4       # weight of a present tag the description never mentions
   hybrid_alpha: 0.7            # hybrid_* = alpha * votes_log + (1 - alpha) * description
   rank_depth: 20               # Steam keeps each game's top 20 tags
@@ -165,7 +316,14 @@ layout:
     - "#332288"
 
 # -----------------------------------------------------------------------------
-# Approved vocabulary -> becomes rows in the `features` table.
+# 5. VOCABULARY - the official list of features
+#
+# Each entry becomes one row in the `features` table.
+#   name          the machine version, lowercase with underscores
+#   display_name  what the user sees on screen
+#
+# Started as a stub Ronnie wrote so the import could be tested. Austin owns
+# it now and expanded it on 2026-11-02 (docs/decisions.md, decision 5).
 # -----------------------------------------------------------------------------
 vocabulary:
   genre:
@@ -281,14 +439,24 @@ vocabulary:
     - {name: linux, display_name: "Linux"}
 
 # -----------------------------------------------------------------------------
-# Aliases: raw source string -> [category, feature name]
+# 6. ALIASES - raw Steam text -> one of our features
 #
-# Anything NOT listed here falls through to the display-only `tag` category,
-# so no information is lost - it just is not weighted. The import report lists
-# the most common unmapped tags so Austin/Kayne know what to add next.
+# HOW THIS WORKS, because it is the part people find confusing:
 #
-# A tag mapped here does NOT also become a `tag` feature. That is how the
-# "avoid counting the same concept twice" rule is enforced.
+#   "Open World" is listed below, so it becomes a weighted structure feature.
+#   "Great Soundtrack" is NOT listed, so it becomes a display-only tag.
+#
+# Nothing is ever thrown away. Unlisted text still ends up on the game, just
+# in the `tag` category which has weight 0.0. So the only thing adding an
+# alias changes is whether the ML pays attention to it.
+#
+# A string listed here does NOT also become a tag. That is how we follow the
+# rule about not counting the same concept twice.
+#
+# To find what is worth adding next, look at the "most common unmapped tags"
+# section of data/import_report.md after an import. That is your to-do list.
+#
+# Matching ignores capitalisation.
 # -----------------------------------------------------------------------------
 aliases:
   # --- from the `genres` column ---
