@@ -7,7 +7,7 @@
 #
 # If you are new to the project, the sections go:
 #   1. dataset      where the source CSV is
-#   2. selection    which ~1000 games we pick out of the 89,618 available
+#   2. selection    which games we pick out of the 89,618 available (all of them on this branch)
 #   3. fields       which CSV column becomes which database column
 #   4. weights      how much each feature category counts for the ML
 #   5. vocabulary   the official list of features
@@ -32,9 +32,13 @@
 # --reset`; published map v1 is unchanged.
 # =============================================================================
 
-map_version: "v2"
+map_version: "v3"
 random_seed: 42          # REL 2: every randomised step in the pipeline uses this
 cluster_count: 12        # placeholder - Austin/Kayne decide
+# CON 3 caps a published map at 1,100 games until PERF 1-3 are retested.
+# THIS BRANCH raises it so map v3 can hold the full catalogue. PERF 1-3
+# have not been retested at this size.
+max_map_games: 90000
 kmeans_n_init: 10        # K-Means restarts from different seeded centroids; the lowest-inertia run wins
 
 # -----------------------------------------------------------------------------
@@ -58,8 +62,8 @@ selection:
   #
   # THIS BRANCH USES `all` ON PURPOSE. It is a test build of the entire Steam
   # catalogue, 89,618 games, so we can see what the full dataset looks like.
-  # It is NOT the map dataset: CON 3 caps a published map at 1,100 games, and
-  # the database file it makes is too big to commit. See DATABASE.md.
+  # Map v3 is built from it, with max_map_games raised above CON 3's 1,100 (see
+  # max_map_games). The database file is too big to commit. See DATABASE.md.
   # The real build, on main, uses popular_recent with target_count: 1000.
   mode: "all"
 
@@ -289,7 +293,7 @@ category_weights:
 # `python -m pipeline.compare_vectors`, then set `method` to the winner.
 # -----------------------------------------------------------------------------
 vectorization:
-  method: "votes_max"          # chosen 2026-11-02 for map v2 (docs/decisions.md, decision 4); v1 used votes_log_idf
+  method: "hybrid_max"         # map v3 (full catalogue): ties votes_max on pairs at 1k and 90k, best 90k genre overlap (docs/full-90k-findings.md); v2 used votes_max, v1 votes_log_idf
   description_floor: 0.4       # weight of a present tag the description never mentions
   hybrid_alpha: 0.7            # weight on the tag side. hybrid_embed: alpha * votes_log + (1 - alpha) * description; hybrid_max: same with votes_max; hybrid_semantic: alpha * tag cosine + (1 - alpha) * text cosine
   rank_depth: 20               # Steam keeps each game's top 20 tags
