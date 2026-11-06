@@ -123,6 +123,9 @@ def validate_config(cfg: dict) -> None:
     n_init = cfg.get("kmeans_n_init")
     if not (_is_int(n_init) and n_init >= 1):
         raise ConfigError("kmeans_n_init must be a positive integer")
+    max_games = cfg.get("max_map_games")
+    if not (_is_int(max_games) and max_games >= 1):
+        raise ConfigError("max_map_games must be a positive integer")
     if not _is_int(cfg.get("random_seed")):
         raise ConfigError("random_seed must be an integer")
 

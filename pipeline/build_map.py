@@ -64,6 +64,7 @@ class MapBuild:
     neighbors_kept_on_map: float
     cluster_sizes: tuple[int, ...]
     collisions_moved: int
+    collisions_spread: bool
 
 
 def nearest_neighbors(vectors: np.ndarray, game_ids: np.ndarray, k: int) -> list[dict]:
@@ -219,7 +220,7 @@ def cluster_rows(n_clusters: int, colors: list[str]) -> list[dict]:
 def build_map_from_vectors(
     vectors: np.ndarray, game_ids: np.ndarray, cfg: dict, spread_collisions: bool = True
 ) -> MapBuild:
-    """`spread_collisions=False` is for lab maps over the CON 3 cap, where the spacing cannot be met."""
+    """`spread_collisions=False` is for maps over publish.MAX_GAMES (1,100, CON 3), where the spacing cannot be met."""
     layout = cfg["layout"]
     seed, n_clusters = cfg["random_seed"], cfg["cluster_count"]
     coords = layout_2d(vectors, layout, seed)
@@ -244,12 +245,17 @@ def build_map_from_vectors(
         neighbors_kept_on_map=neighbors_kept_on_map(coords, vectors, layout["neighbor_count"]),
         cluster_sizes=tuple(int(c) for c in np.bincount(labels, minlength=n_clusters)),
         collisions_moved=moved,
+        collisions_spread=spread_collisions,
     )
 
 
 def build_map(corpus: TagCorpus, cfg: dict) -> MapBuild:
+    """Games whose vector is all zeros (no tags under a tag method) have no position and are left out."""
     vectors = vectorize(corpus, cfg["vectorization"]["method"], vectorization_params(cfg))
-    return build_map_from_vectors(vectors, corpus.game_ids, cfg)
+    kept = np.flatnonzero(np.linalg.norm(vectors, axis=1) > 0)
+    return build_map_from_vectors(
+        vectors[kept], corpus.game_ids[kept], cfg, spread_collisions=len(kept) <= publish.MAX_GAMES
+    )
 
 
 def corpus_hash(corpus: TagCorpus) -> str:
@@ -274,16 +280,18 @@ def map_version_exists(db_path: Path, version: str) -> bool:
         conn.close()
 
 
-def summary(build: MapBuild, version: str, method: str) -> str:
+def summary(build: MapBuild, version: str, method: str, left_out: int) -> str:
     return "\n".join(
         [
             f"map version: {version} (method {method})",
-            f"games: {len(build.positions)}, neighbours/game: "
+            f"games: {len(build.positions)} ({left_out} left out with no vector), neighbours/game: "
             f"{len(build.neighbors) // len(build.positions)}",
             f"layout: {build.layout_method}, neighbours kept on map: "
             f"{build.neighbors_kept_on_map:.0%}",
             f"cluster sizes: {list(build.cluster_sizes)}",
-            f"collisions moved: {build.collisions_moved}",
+            f"collisions moved: {build.collisions_moved}"
+            if build.collisions_spread
+            else f"collisions: not spread (over {publish.MAX_GAMES} games)",
         ]
     )
 
@@ -318,7 +326,11 @@ def main(argv: list[str] | None = None) -> None:
     corpus = load_corpus_for(DB_PATH, cfg)
     build = build_map(corpus, cfg)
     publish.validate(
-        build.clusters, build.positions, build.neighbors, set(corpus.game_ids.tolist())
+        build.clusters,
+        build.positions,
+        build.neighbors,
+        set(corpus.game_ids.tolist()),
+        max_games=cfg["max_map_games"],
     )
 
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -334,7 +346,7 @@ def main(argv: list[str] | None = None) -> None:
         ),
         encoding="utf-8",
     )
-    print(summary(build, version, method))
+    print(summary(build, version, method, len(corpus.game_ids) - len(build.positions)))
     print("validate: ok")
     print(f"artifact: {artifact}")
 
@@ -347,6 +359,7 @@ def main(argv: list[str] | None = None) -> None:
             dataset_hash=corpus_hash(corpus),
             config_snapshot={**cfg, "map_version": version},
             feature_artifact_ref=f"vectorization:{method}",
+            max_games=cfg["max_map_games"],
         )
         print(f"published {version}")
         try:

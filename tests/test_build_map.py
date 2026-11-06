@@ -81,6 +81,16 @@ def test_map_publishes_into_the_database(corpus, cfg, factory):
         assert len(s.scalars(select(MapGame)).all()) == N_GAMES
 
 
+def test_games_with_no_tags_are_left_off_the_map(corpus, cfg):
+    tagless = [2, 7]
+    corpus.votes[tagless] = 0
+    corpus.order[tagless] = order_from_votes(corpus.votes[tagless])
+    build = build_map(corpus, cfg)
+    on_map = {p["game_id"] for p in build.positions}
+    assert on_map == set(corpus.game_ids.tolist()) - set(corpus.game_ids[tagless].tolist())
+    assert all(n["game_id"] in on_map and n["neighbor_game_id"] in on_map for n in build.neighbors)
+
+
 def test_neighbours_exclude_self_and_are_sorted_best_first(corpus, cfg):
     build = build_map(corpus, cfg)
     by_game: dict[int, list[dict]] = {}
@@ -177,17 +187,21 @@ def test_clusters_separate_groups_that_the_2d_layout_merges():
 def test_real_database_dry_build_validates():
     cfg = load_config()
     corpus = load_corpus(DB_PATH, alias_lookup(load_config()))
-    # test/full-90k-database only: the full catalogue is far over the CON 3 cap,
-    # so a map built from it could never pass publish.validate, and comparing
-    # every pair of ~90,000 games would not fit in memory. Skip with the reason.
+    # test/full-90k-database only: a full-catalogue build embeds ~90,000
+    # descriptions and runs t-SNE on ~73,000 games, which takes minutes. Run it
+    # with `python -m pipeline.build_map` instead of on every test run.
     if len(corpus.game_ids) > publish.MAX_GAMES:
         pytest.skip(
-            f"{len(corpus.game_ids):,} games is over the {publish.MAX_GAMES:,}-game "
-            "CON 3 cap, so no publishable map can be built from this database"
+            f"{len(corpus.game_ids):,} games is over {publish.MAX_GAMES:,} (CON 3); "
+            "a build this size is too slow for the test suite, run `python -m pipeline.build_map`"
         )
     build = build_map(corpus, cfg)
     publish.validate(
-        build.clusters, build.positions, build.neighbors, set(corpus.game_ids.tolist())
+        build.clusters,
+        build.positions,
+        build.neighbors,
+        set(corpus.game_ids.tolist()),
+        max_games=cfg["max_map_games"],
     )
     assert len(build.clusters) == cfg["cluster_count"]
 
