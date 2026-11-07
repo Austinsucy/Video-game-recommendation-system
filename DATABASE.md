@@ -18,10 +18,8 @@ CSCI 150, Interactive Map of Video Games.
 > * Map v3 is published from this database: `hybrid_max`, 72,746 games (the
 >   16,872 tagless games have no vector and are left off). `max_map_games` in
 >   the config raises the publish cap above CON 3's 1,100 for this branch only;
->   PERF 1-3 have not been retested at this size. `python -m pipeline.build_map
->   --publish` takes about 65 minutes the first time (CPU embeddings, then
->   cached) and 7 minutes after that, with a 6.5 GB memory peak. `data/map.db`
->   holds v3 and is about 13 MB.
+>   PERF 1-3 have not been retested at this size. `data/map.db` holds v3 and is
+>   about 13 MB.
 > * Four tests behave differently, each saying why: the DATA 1 gate skips
 >   (its minimums are off here), the real-database map build skips (too slow
 >   for the suite at this size), DATA 2 skips (its 80% target is for a map of
