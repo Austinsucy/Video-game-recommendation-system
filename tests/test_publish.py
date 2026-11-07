@@ -8,9 +8,9 @@ users: a broken build taking the live map down with it.
 import pytest
 from sqlalchemy import func, select
 
-from backend.app.models import MapGame, MapVersion
-from pipeline.publish import MapValidationError, mark_failed, publish_map
-from tests.conftest import make_clusters, make_neighbors, make_positions
+from backend.app.models import Game, MapGame, MapVersion
+from pipeline.publish import MAX_GAMES, MapValidationError, mark_failed, publish_map
+from tests.conftest import N_GAMES, make_clusters, make_neighbors, make_positions
 
 # 15 games, so every game can have 10 neighbours and still have spares.
 IDS = list(range(1, 16))
@@ -93,14 +93,27 @@ def test_duplicate_game_in_map_is_rejected(factory):
         publish(factory, "v1", positions=duplicated)
 
 
+def seed_games(factory, ids):
+    with factory() as session, session.begin():
+        session.add_all(
+            Game(game_id=i, title=f"Game {i}", title_search=f"game {i}") for i in ids if i > N_GAMES
+        )
+
+
 def test_cap_is_enforced(factory):
     """CON 3 caps us at 1100 games until performance is re-tested."""
-    too_many = [
-        {"game_id": i, "x": 1.0, "y": 1.0, "cluster_id": 0}
-        for i in range(1, 1202)
-    ]
-    with pytest.raises(MapValidationError):
-        publish(factory, "v1", positions=too_many, neighbors=[])
+    ids = list(range(1, MAX_GAMES + 2))
+    seed_games(factory, ids)
+    with pytest.raises(MapValidationError, match="cap"):
+        publish(factory, "v1", positions=make_positions(ids), neighbors=[])
+
+
+def test_a_raised_cap_lets_a_bigger_map_through(factory):
+    """CON 3 allows more than 1,100 games once PERF 1-3 are retested; max_map_games sets the cap."""
+    ids = list(range(1, MAX_GAMES + 2))
+    seed_games(factory, ids)
+    publish(factory, "v1", positions=make_positions(ids), neighbors=[], max_games=MAX_GAMES + 1)
+    assert active(factory) == ["v1"]
 
 
 def test_cannot_reuse_a_version_id(factory):

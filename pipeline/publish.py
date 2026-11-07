@@ -45,7 +45,7 @@ class MapValidationError(ValueError):
     """
 
 
-def validate(clusters, positions, neighbors, known_game_ids: set[int]) -> None:
+def validate(clusters, positions, neighbors, known_game_ids: set[int], *, max_games: int = MAX_GAMES) -> None:
     """Check a map thoroughly before any of it is written.
 
     Everything here is checked in Python rather than left to the database,
@@ -55,10 +55,10 @@ def validate(clusters, positions, neighbors, known_game_ids: set[int]) -> None:
     if not positions:
         raise MapValidationError("the map has no games in it")
 
-    if len(positions) > MAX_GAMES:
+    if len(positions) > max_games:
         raise MapValidationError(
-            f"{len(positions)} games is over the {MAX_GAMES} cap from CON 3. "
-            "We would need to re-test the PERF requirements before going bigger."
+            f"{len(positions)} games is over the {max_games}-game cap (max_map_games). "
+            f"CON 3 needs PERF 1-3 retested before a map goes over {MAX_GAMES}."
         )
 
     # --- clusters ---
@@ -140,6 +140,7 @@ def publish_map(
     dataset_hash: str | None = None,
     config_snapshot: dict | None = None,
     feature_artifact_ref: str | None = None,
+    max_games: int = MAX_GAMES,
     session_factory=SessionLocal,
 ) -> None:
     """Validate a map, write it, and switch it live. All or nothing.
@@ -156,7 +157,7 @@ def publish_map(
             )
 
         known_game_ids = set(session.scalars(select(Game.game_id)).all())
-        validate(clusters, positions, neighbors, known_game_ids)
+        validate(clusters, positions, neighbors, known_game_ids, max_games=max_games)
 
         # Start as "building" and NOT active. If we crash from here on, the
         # rollback removes this row entirely and the old map stays live.

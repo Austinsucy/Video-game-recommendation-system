@@ -33,11 +33,11 @@ Features come from four places: the `genres` column, the `categories` column, th
 | Rows in the source file | 89,618 |
 | After dropping excluded genres | 89,618 |
 | With a readable release year | 89,618 |
-| After the year filter (`popular_recent`) | 66,756 |
-| With at least the minimum genres | 64,259 |
-| With at least the minimum tags | 48,062 |
-| **Eligible to pick from** | **48,062** |
-| **Actually imported** | **1,000** |
+| After the year filter (`all`) | 89,618 |
+| With at least the minimum genres | 89,618 |
+| With at least the minimum tags | 89,618 |
+| **Eligible to pick from** | **89,618** |
+| **Actually imported** | **89,618** |
 
 Source file: `data/raw/games_march2025_cleaned.csv`  
 SHA-256: `04d8df2778aaa8f8b575934b7072d55224d37a2ded23e8261583f0fcf668dfab`
@@ -52,13 +52,13 @@ How many games have nothing in each optional column.
 |---|---|---|
 | `release_date` | 0 | 0.0% |
 | `release_year` | 0 | 0.0% |
-| `description` | 0 | 0.0% |
-| `long_description` | 4 | 0.4% |
-| `developers` | 0 | 0.0% |
-| `publishers` | 3 | 0.3% |
+| `description` | 120 | 0.1% |
+| `long_description` | 197 | 0.2% |
+| `developers` | 221 | 0.2% |
+| `publishers` | 553 | 0.6% |
 | `cover_image_url` | 0 | 0.0% |
 | `store_url` | 0 | 0.0% |
-| `playtime_hours` | 338 | 33.8% |
+| `playtime_hours` | 81,608 | 91.1% |
 | `rating` | 0 | 0.0% |
 | `rating_count` | 0 | 0.0% |
 | `popularity` | 0 | 0.0% |
@@ -67,14 +67,42 @@ How many games have nothing in each optional column.
 
 | Column | Average | Longest |
 |---|---|---|
-| `description` | 221 chars | 339 chars |
-| `long_description` | 1,962 chars | 10,520 chars |
+| `description` | 195 chars | 342 chars |
+| `long_description` | 1,283 chars | 67,520 chars |
 
-This is why `/map` does not send `long_description`. At about 1,962 characters each, 1,000 of them would be roughly 2.0 MB in one response. It loads from `/games/{id}` when someone clicks a game instead.
+This is why `/map` does not send `long_description`. At about 1,283 characters each, 89,618 of them would be roughly 115.0 MB in one response. It loads from `/games/{id}` when someone clicks a game instead.
 
 ## Possible duplicate titles
 
-0 normalised titles show up more than once. These are listed for a human to look at and are **never** merged automatically, because remasters and regional releases are legitimately different games with the same name.
+890 normalised titles show up more than once. These are listed for a human to look at and are **never** merged automatically, because remasters and regional releases are legitimately different games with the same name.
+
+| Normalised title | Actual titles |
+|---|---|
+| `1` | +1% / ➕1️⃣ |
+| `10 seconds` | 10 Seconds / 10 seconds |
+| `100` | 100$ / €100 |
+| `12 hours` | 12 HOURS / 12 Hours |
+| `50 years` | 50 years / 50 Years |
+| `a walk in the woods` | A Walk in the Woods / A Walk in the Woods |
+| `abyss` | Abyss / Abyss / Abyss |
+| `achievement clicker` | Achievement Clicker / Achievement Clicker |
+| `achromatic` | Achromatic / Achromatic |
+| `across` | Across / Across |
+| `after` | AFTER / After |
+| `after school` | After School / After School |
+| `afterlife` | Afterlife / AFTERLIFE / Afterlife / Afterlife |
+| `aftermath` | Aftermath / Aftermath |
+| `again` | Again / Again? |
+| `against all odds` | Against All Odds / Against All Odds / Against All Odds |
+| `air` | AIR / Air |
+| `air attack` | Air Attack / Air Attack |
+| `airborne` | Airborne / AIRBORNE |
+| `aleph` | Aleph / ALEPH |
+| `alien` | Alien / Alien |
+| `alien defense` | Alien Defense / Alien Defense |
+| `alive` | Alive / ALIVE |
+| `alma` | Alma / Alma |
+| `alone` | ALONE / ALONE? / Alone / Alone / Alone / Alone / Alone / Alone |
 
 ## Feature coverage by category
 
@@ -84,21 +112,21 @@ A high `absent` count is not a bug, it means the alias list in `config/map_confi
 
 | Category | Present | Absent | Unknown | Features defined |
 |---|---|---|---|---|
-| `genre` | 1,000 | 0 | 0 | 16 |
-| `gameplay` | 815 | 185 | 0 | 16 |
-| `mechanic` | 632 | 368 | 0 | 13 |
-| `structure` | 638 | 362 | 0 | 9 |
-| `theme` | 854 | 146 | 0 | 16 |
-| `multiplayer` | 1,000 | 0 | 0 | 15 |
-| `perspective` | 825 | 175 | 0 | 8 |
-| `platform` | 1,000 | 0 | 0 | 3 |
-| `tag` | 996 | 4 | 0 | 257 |
+| `genre` | 87,306 | 2,177 | 135 | 16 |
+| `gameplay` | 37,135 | 35,611 | 16,872 | 16 |
+| `mechanic` | 29,258 | 43,488 | 16,872 | 13 |
+| `structure` | 26,530 | 46,216 | 16,872 | 9 |
+| `theme` | 43,454 | 29,292 | 16,872 | 16 |
+| `multiplayer` | 88,177 | 627 | 814 | 15 |
+| `perspective` | 49,488 | 23,258 | 16,872 | 8 |
+| `platform` | 89,618 | 0 | 0 | 3 |
+| `tag` | 84,037 | 1,907 | 3,674 | 300 |
 
-Total game-to-feature links: 20,707
+Total game-to-feature links: 1,207,429
 
 ## DATA 1 completeness
 
-1,000 of 1,000 games (100.0%) have a title, a release year, at least one genre and at least three features. Our requirement is 95%.
+87,301 of 89,618 games (97.4%) have a title, a release year, at least one genre and at least three features. Our requirement is 95%.
 
 ## Most common unmapped tags
 
@@ -108,33 +136,33 @@ These tags had no alias, so they became display-only `tag` features with weight 
 
 | Tag | Games with it |
 |---|---|
-| Indie | 390 |
-| Atmospheric | 359 |
-| Early Access | 197 |
-| Great Soundtrack | 192 |
-| Violent | 178 |
-| Realistic | 161 |
-| Gore | 155 |
-| Colorful | 135 |
-| Pixel Graphics | 134 |
-| Difficult | 131 |
-| Cute | 125 |
-| Female Protagonist | 121 |
-| Sexual Content | 110 |
-| Free to Play | 106 |
-| Controller | 106 |
-| Tactical | 98 |
-| Family Friendly | 98 |
-| Dark | 92 |
-| Relaxing | 87 |
-| Nudity | 70 |
-| Replay Value | 68 |
-| Stylized | 64 |
-| Moddable | 61 |
-| Mature | 58 |
-| Team-Based | 56 |
-| Cinematic | 56 |
-| Cartoony | 51 |
-| Drama | 49 |
-| Emotional | 48 |
-| Retro | 47 |
+| Indie | 43,408 |
+| Atmospheric | 13,780 |
+| Colorful | 11,833 |
+| Pixel Graphics | 11,815 |
+| Cute | 10,607 |
+| Early Access | 9,187 |
+| Retro | 7,940 |
+| Relaxing | 7,646 |
+| Family Friendly | 7,589 |
+| Female Protagonist | 6,474 |
+| Controller | 6,191 |
+| Stylized | 5,997 |
+| Difficult | 5,580 |
+| Cartoony | 5,127 |
+| Realistic | 5,118 |
+| Dark | 5,106 |
+| Minimalist | 4,725 |
+| Violent | 4,346 |
+| Free to Play | 4,115 |
+| Great Soundtrack | 3,897 |
+| Hidden Object | 3,777 |
+| Gore | 3,738 |
+| Old School | 3,716 |
+| Hand-drawn | 3,702 |
+| Logic | 3,574 |
+| Tactical | 3,422 |
+| Shoot 'Em Up | 3,126 |
+| Cartoon | 3,076 |
+| Sexual Content | 2,938 |
+| Drama | 2,773 |

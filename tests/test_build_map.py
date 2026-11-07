@@ -12,6 +12,7 @@ from pipeline import publish
 from pipeline.build_map import (
     assign_clusters,
     build_map,
+    main,
     layout_2d,
     neighbors_kept_on_map,
     nearest_neighbors,
@@ -78,6 +79,16 @@ def test_map_publishes_into_the_database(corpus, cfg, factory):
     with factory() as s:
         assert s.get(MapVersion, "v-test").is_active == 1
         assert len(s.scalars(select(MapGame)).all()) == N_GAMES
+
+
+def test_games_with_no_tags_are_left_off_the_map(corpus, cfg):
+    tagless = [2, 7]
+    corpus.votes[tagless] = 0
+    corpus.order[tagless] = order_from_votes(corpus.votes[tagless])
+    build = build_map(corpus, cfg)
+    on_map = {p["game_id"] for p in build.positions}
+    assert on_map == set(corpus.game_ids.tolist()) - set(corpus.game_ids[tagless].tolist())
+    assert all(n["game_id"] in on_map and n["neighbor_game_id"] in on_map for n in build.neighbors)
 
 
 def test_neighbours_exclude_self_and_are_sorted_best_first(corpus, cfg):
@@ -176,9 +187,21 @@ def test_clusters_separate_groups_that_the_2d_layout_merges():
 def test_real_database_dry_build_validates():
     cfg = load_config()
     corpus = load_corpus(DB_PATH, alias_lookup(load_config()))
+    # test/full-90k-database only: a full-catalogue build embeds ~90,000
+    # descriptions and runs t-SNE on ~73,000 games, which takes minutes. Run it
+    # with `python -m pipeline.build_map` instead of on every test run.
+    if len(corpus.game_ids) > publish.MAX_GAMES:
+        pytest.skip(
+            f"{len(corpus.game_ids):,} games is over {publish.MAX_GAMES:,} (CON 3); "
+            "a build this size is too slow for the test suite, run `python -m pipeline.build_map`"
+        )
     build = build_map(corpus, cfg)
     publish.validate(
-        build.clusters, build.positions, build.neighbors, set(corpus.game_ids.tolist())
+        build.clusters,
+        build.positions,
+        build.neighbors,
+        set(corpus.game_ids.tolist()),
+        max_games=cfg["max_map_games"],
     )
     assert len(build.clusters) == cfg["cluster_count"]
 
@@ -205,3 +228,41 @@ def test_tsne_layout_is_reproducible():
     vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
     layout = {"method": "tsne", "coordinate_extent": 1000.0, "tsne_perplexity": 15}
     np.testing.assert_array_equal(layout_2d(vectors, layout, seed=42), layout_2d(vectors, layout, seed=42))
+
+
+def test_points_exactly_min_distance_apart_are_not_close():
+    coords = np.array([[0.0, 0.0], [1.0, 0.0], [2.5, 0.0]])
+    out, moved = separate_collisions(coords, np.array([1, 2, 3]), 1.0)
+    assert moved == 0
+    np.testing.assert_array_equal(out, coords)
+
+
+def test_a_chain_of_close_points_is_one_group():
+    coords = np.array([[0.0, 0.0], [0.9, 0.0], [1.8, 0.0], [50.0, 0.0]])
+    out, moved = separate_collisions(coords, np.array([1, 2, 3, 4]), 1.0)
+    assert moved == 3
+    np.testing.assert_array_equal(out[3], coords[3])
+    assert min(math.dist(out[i], out[j]) for i in range(3) for j in range(i + 1, 3)) >= 1.0
+
+
+def test_neighbours_kept_on_map_counts_the_true_neighbours_among_the_closest_points():
+    vectors = np.array([[1.0, 0], [0.99, 0.1], [0, 1.0], [0.1, 0.99]])
+    vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+    together = np.array([[0.0, 0], [1, 0], [10, 10], [11, 10]])
+    apart = np.array([[0.0, 0], [10, 10], [1, 0], [11, 10]])
+    assert neighbors_kept_on_map(together, vectors, 1) == 1.0
+    assert neighbors_kept_on_map(apart, vectors, 1) == 0.0
+
+
+def test_publish_refuses_a_non_cpu_embedding_build(cfg, monkeypatch, capsys):
+    cfg["vectorization"].update(method="hybrid_embed", embedding_device="cuda")
+    monkeypatch.setattr("pipeline.build_map.load_config", lambda: cfg)
+    monkeypatch.setattr(
+        "pipeline.build_map.load_corpus_for", lambda *a: pytest.fail("the build must not start")
+    )
+    monkeypatch.setattr(
+        publish, "publish_map", lambda *a, **k: pytest.fail("nothing may be published")
+    )
+    with pytest.raises(SystemExit, match="CPU-built"):
+        main(["--publish"])
+

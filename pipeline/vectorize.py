@@ -20,8 +20,14 @@ The feature methods (FEATURE_METHODS, today only `category_weighted`) instead
 work on the curated features and the config's category weights; their vectors
 have one column per curated feature, not per tag.
 
-The core methods use pandas/NumPy/scikit-learn only. `desc_embed` imports
-sentence-transformers lazily, so nothing else needs it installed.
+The text methods (TEXT_METHODS: `semantic`, `hybrid_semantic`) have columns
+that are not tag space: `semantic` is the description embedding itself
+(n, embedding_dim), and `hybrid_semantic` stacks a tag half and an embedding
+half, (n, n_tags + embedding_dim). Rows with a blank text have a zero text
+half, so a game with no tags still has a `semantic` vector.
+
+The core methods use pandas/NumPy/scikit-learn only. The embedding methods
+import sentence-transformers lazily, so nothing else needs it installed.
 """
 from __future__ import annotations
 
@@ -38,8 +44,9 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from backend.app.db import DB_PATH
-from pipeline.config import ARTIFACTS_DIR, map_raw_tag
+from pipeline.config import ARTIFACTS_DIR, TEXT_FIELDS, alias_lookup, map_raw_tag
 
+NEIGHBOR_BLOCK = 512
 SIMILARITY_DECIMALS = 10  # ties are decided by game_id, so last-bit float noise must not matter
 
 Params = Mapping[str, Any]
@@ -116,12 +123,21 @@ def feature_strengths(
     return strength
 
 
-def load_corpus(db_path: Path | str, aliases: dict[str, tuple[str, str]]) -> TagCorpus:
+def load_corpus(
+    db_path: Path | str,
+    aliases: dict[str, tuple[str, str]],
+    text_field: str = "description",
+) -> TagCorpus:
+    """`text_field="long_description"` reads the full text, falling back to the
+    short description when it is blank or NULL."""
+    if text_field not in TEXT_FIELDS:
+        raise ValueError(f"text_field must be one of {TEXT_FIELDS}, got {text_field!r}")
+    long_column = "long_description" if text_field == "long_description" else "NULL"
     uri = Path(db_path).resolve().as_uri() + "?mode=ro"  # never creates a file
     conn = sqlite3.connect(uri, uri=True)
     try:
         rows = conn.execute(
-            "SELECT game_id, title, description, raw_tags_json "
+            f"SELECT game_id, title, description, raw_tags_json, {long_column} "
             "FROM games ORDER BY game_id"
         ).fetchall()
         feature_rows = conn.execute(
@@ -155,7 +171,9 @@ def load_corpus(db_path: Path | str, aliases: dict[str, tuple[str, str]]) -> Tag
         tags=tags,
         votes=votes,
         order=order,
-        descriptions=[r[2] or "" for r in rows],
+        descriptions=[
+            r[4] if r[4] and r[4].strip() else r[2] or "" for r in rows
+        ],
         features=CuratedFeatures(
             strength=strengths,
             categories=tuple(category for category, _ in keys),
@@ -165,6 +183,11 @@ def load_corpus(db_path: Path | str, aliases: dict[str, tuple[str, str]]) -> Tag
 
 
 # --- tag-vote methods -------------------------------------------------------
+
+def load_corpus_for(db_path: Path | str, cfg: dict) -> TagCorpus:
+    """load_corpus with the config's alias table and `vectorization.text_field`."""
+    return load_corpus(db_path, alias_lookup(cfg), cfg["vectorization"]["text_field"])
+
 
 def binary(corpus: TagCorpus, params: Params) -> np.ndarray:
     return corpus.present.astype(float)
@@ -253,26 +276,26 @@ def embedding_relevance(corpus: TagCorpus, params: Params) -> np.ndarray:
 
 
 def _embed(texts: list[str], params: Params) -> np.ndarray:
-    """Normalised sentence embeddings, cached by model, revision and text.
+    """Normalised sentence embeddings, cached by model, revision, text and device.
 
     `embedding_cache_dir` is an optional override that tests use to keep the
-    cache out of data/artifacts.
+    cache out of data/artifacts. The device is `embedding_device` (default
+    "cpu": published maps are CPU-built, REL 2); it joins the cache key only
+    when it is not "cpu", so CPU caches written before the key existed stay valid.
     """
     model_name = params["embedding_model"]
     revision = params["embedding_revision"]
+    device = params.get("embedding_device", "cpu")
     cache_dir = Path(params.get("embedding_cache_dir", ARTIFACTS_DIR / "embeddings"))
-    digest = hashlib.sha256(
-        json.dumps([model_name, revision, texts], ensure_ascii=False).encode()
-    ).hexdigest()[:16]
+    key = [model_name, revision, texts] + ([] if device == "cpu" else [device])
+    digest = hashlib.sha256(json.dumps(key, ensure_ascii=False).encode()).hexdigest()[:16]
     cache_file = cache_dir / f"{model_name.replace('/', '_')}-{digest}.npy"
     if cache_file.exists():
         return np.load(cache_file)
 
     from sentence_transformers import SentenceTransformer  # optional dependency
 
-    model = SentenceTransformer(  # REL 2: pinned revision, no GPU nondeterminism
-        model_name, revision=revision, device="cpu"
-    )
+    model = SentenceTransformer(model_name, revision=revision, device=device)  # REL 2: pinned revision
     vectors = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
     cache_dir.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=cache_dir, suffix=".tmp")
@@ -323,17 +346,46 @@ def desc_embed(corpus: TagCorpus, params: Params) -> np.ndarray:
     return _from_relevance(corpus, embedding_relevance(corpus, params), params)
 
 
-def _hybrid(description_method: Callable[[TagCorpus, Params], np.ndarray]):
+def _hybrid(
+    tag_method: Callable[[TagCorpus, Params], np.ndarray],
+    description_method: Callable[[TagCorpus, Params], np.ndarray],
+):
     def blended(corpus: TagCorpus, params: Params) -> np.ndarray:
         alpha = params["hybrid_alpha"]
-        return alpha * votes_log(corpus, params) + (1 - alpha) * description_method(
+        return alpha * tag_method(corpus, params) + (1 - alpha) * description_method(
             corpus, params
         )
 
     return blended
 
 
-EMBEDDING_METHODS = frozenset({"desc_embed", "hybrid_embed"})
+def _unit(rows: np.ndarray) -> np.ndarray:
+    norms = np.linalg.norm(rows, axis=1, keepdims=True)
+    return rows / np.where(norms > 0, norms, 1.0)
+
+
+def semantic(corpus: TagCorpus, params: Params) -> np.ndarray:
+    """(n, embedding_dim) description embeddings; a blank text has no embedding (zero row)."""
+    return np.where(_blank_descriptions(corpus), 0.0, _embed(corpus.descriptions, params))
+
+
+def hybrid_semantic(corpus: TagCorpus, params: Params) -> np.ndarray:
+    """Tag half and text half side by side, so cosine = alpha * tag cosine + (1 - alpha) * text cosine.
+
+    Each half is unit length (or zero), so the weights are sqrt(alpha) and
+    sqrt(1 - alpha); a game missing one half scores only on the other.
+    """
+    alpha = params["hybrid_alpha"]
+    return np.hstack(
+        [
+            np.sqrt(alpha) * _unit(votes_max(corpus, params)),
+            np.sqrt(1 - alpha) * semantic(corpus, params),
+        ]
+    )
+
+
+EMBEDDING_METHODS = frozenset({"desc_embed", "hybrid_embed", "hybrid_max", "semantic", "hybrid_semantic"})
+TEXT_METHODS = frozenset({"semantic", "hybrid_semantic"})  # columns are not tag space
 TFIDF_METHODS = frozenset({"desc_tfidf", "hybrid_tfidf"})
 FEATURE_METHODS = frozenset({"category_weighted"})  # (n, F) over curated features, not (n, tags)
 
@@ -348,8 +400,11 @@ METHODS: dict[str, Callable[[TagCorpus, Params], np.ndarray]] = {
     "votes_rank_idf": _with_idf(votes_rank),
     "desc_tfidf": desc_tfidf,
     "desc_embed": desc_embed,
-    "hybrid_tfidf": _hybrid(desc_tfidf),
-    "hybrid_embed": _hybrid(desc_embed),
+    "hybrid_tfidf": _hybrid(votes_log, desc_tfidf),
+    "hybrid_embed": _hybrid(votes_log, desc_embed),
+    "hybrid_max": _hybrid(votes_max, desc_embed),
+    "semantic": semantic,
+    "hybrid_semantic": hybrid_semantic,
     "category_weighted": category_weighted,
 }
 
@@ -360,20 +415,26 @@ def vectorize(corpus: TagCorpus, method: str, params: Params) -> np.ndarray:
         raise ValueError(
             f"unknown vectorization method {method!r}; valid methods: {sorted(METHODS)}"
         )
-    weights = METHODS[method](corpus, params)
-    norms = np.linalg.norm(weights, axis=1, keepdims=True)
-    return weights / np.where(norms > 0, norms, 1.0)
+    return _unit(METHODS[method](corpus, params))
 
 
-def neighbor_indices(vectors: np.ndarray, k: int) -> np.ndarray:
+def neighbor_indices(vectors: np.ndarray, k: int, block_size: int = NEIGHBOR_BLOCK) -> np.ndarray:
     """(n, k) row indices of each game's k most similar other games, best first.
 
-    Rows are in ascending game_id, so the stable sort breaks equal (rounded)
-    similarities by game_id.
+    Rows are in ascending game_id, so equal (rounded) similarities are broken
+    by game_id. Rows are scored in blocks, so memory is block_size x n, never n x n.
     """
     n = len(vectors)
     if not 0 < k < n:
         raise ValueError(f"need 0 < k < {n} games, got k={k}")
-    sim = np.round(vectors @ vectors.T, SIMILARITY_DECIMALS)
-    np.fill_diagonal(sim, -np.inf)
-    return np.argsort(-sim, axis=1, kind="stable")[:, :k]
+    out = np.empty((n, k), dtype=np.int64)
+    for start in range(0, n, block_size):
+        stop = min(start + block_size, n)
+        sim = np.round(vectors[start:stop] @ vectors.T, SIMILARITY_DECIMALS)
+        rows = np.arange(stop - start)
+        sim[rows, start + rows] = -np.inf
+        kth = -np.partition(-sim, k - 1, axis=1)[:, k - 1]
+        for r in rows:
+            cols = np.flatnonzero(sim[r] >= kth[r])  # every column tied with the k-th best stays in
+            out[start + r] = cols[np.lexsort((cols, -sim[r, cols]))[:k]]
+    return out

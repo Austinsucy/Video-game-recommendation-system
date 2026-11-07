@@ -9,6 +9,8 @@ database. That matters for two reasons: tests cannot interfere with each
 other, and they cannot touch data/games.db, so running the test suite can
 never damage real data.
 """
+import zlib
+
 import numpy as np
 import pytest
 from sqlalchemy import create_engine, event
@@ -105,3 +107,12 @@ def order_from_votes(votes: np.ndarray) -> np.ndarray:
     ranks = np.empty(votes.shape)
     np.put_along_axis(ranks, by_votes, np.arange(1, votes.shape[1] + 1), axis=1)
     return np.where(votes > 0, ranks, 0.0)
+
+
+def fake_embed(texts, params):
+    """Deterministic stand-in for the sentence model: unit rows, equal texts equal rows."""
+    rows = []
+    for text in texts:
+        v = np.random.default_rng(zlib.crc32(text.encode())).normal(size=6)
+        rows.append(v / np.linalg.norm(v))
+    return np.array(rows)

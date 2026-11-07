@@ -16,6 +16,8 @@ ARTIFACTS_DIR = REPO_ROOT / "data" / "artifacts"
 MAP_DB_PATH = REPO_ROOT / "data" / "map.db"
 _HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
 LAYOUT_METHODS = ("pca", "tsne")  # pipeline/build_map.py LAYOUTS
+TEXT_FIELDS = ("description", "long_description")  # games columns the description methods can embed
+EMBEDDING_DEVICES = ("cpu", "cuda")
 VERSION_ID = re.compile(r"[A-Za-z0-9._-]+")
 CONFIG_PATH = REPO_ROOT / "config" / "map_config.yaml"
 
@@ -121,6 +123,9 @@ def validate_config(cfg: dict) -> None:
     n_init = cfg.get("kmeans_n_init")
     if not (_is_int(n_init) and n_init >= 1):
         raise ConfigError("kmeans_n_init must be a positive integer")
+    max_games = cfg.get("max_map_games")
+    if not (_is_int(max_games) and max_games >= 1):
+        raise ConfigError("max_map_games must be a positive integer")
     if not _is_int(cfg.get("random_seed")):
         raise ConfigError("random_seed must be an integer")
 
@@ -187,6 +192,10 @@ def _validate_vectorization(vec) -> None:
     template = vec.get("embedding_tag_template")
     if not (isinstance(template, str) and "{tag}" in template):
         raise ConfigError("vectorization.embedding_tag_template must contain {tag}")
+    if vec.get("text_field") not in TEXT_FIELDS:
+        raise ConfigError(f"vectorization.text_field must be one of {list(TEXT_FIELDS)}")
+    if vec.get("embedding_device") not in EMBEDDING_DEVICES:
+        raise ConfigError(f"vectorization.embedding_device must be one of {list(EMBEDDING_DEVICES)}")
 
 
 def _validate_layout(layout, cluster_count: int) -> None:

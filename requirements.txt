@@ -7,4 +7,5 @@ PyYAML==6.0.3
 scikit-learn==1.9.1
 scipy==1.18.1
 SQLAlchemy==2.1.6
+threadpoolctl==3.7.0
 uvicorn==0.54.0
