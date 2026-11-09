@@ -101,7 +101,8 @@ async function readMap(): Promise<MapData> {
         clusterId,
         clusterName,
         clusterColor: color,
-        popularity: typeof popularity === 'number' ? popularity : null,
+        // map.db stores -1 when Steam's review count is unknown.
+        popularity: typeof popularity === 'number' && popularity >= 0 ? popularity : null,
         genres: genresById.get(id) ?? [],
     };
   });

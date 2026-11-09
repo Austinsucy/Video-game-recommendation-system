@@ -2,9 +2,13 @@
   font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   font-size: 14px;
   line-height: 1.45;
-  color: #1f2937;
-  background-color: #f7f7f5;
+  color: var(--text);
+  background-color: var(--map-bg);
   color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 *,

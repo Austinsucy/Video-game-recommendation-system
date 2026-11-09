@@ -11,6 +11,63 @@
   --info-width: 360px;
   --feature-width: 300px;
   --panel-shadow: 0 1px 2px rgb(17 24 39 / 4%), 0 6px 20px rgb(17 24 39 / 6%);
+  --hover-bg: #f1f1ee;
+  --active-bg: #eef2fd;
+  --divider-soft: #f0f0ec;
+  --status-bg: rgb(247 247 245 / 85%);
+  --unavailable: #6b7280;
+  --swatch-ring: rgb(17 24 39 / 15%);
+  --error-text: #991b1b;
+  --error-bg: #fef2f2;
+  --error-border: #fecaca;
+  --planned-text: #92400e;
+  --planned-border: #f0c78a;
+  --planned-bg: #fffbf0;
+  --partial-text: #1e40af;
+  --partial-border: #bfd0f8;
+  --partial-bg: #f5f8ff;
+  /* Read by GameMap.tsx for the canvas labels and highlights. */
+  --map-text: #1f2937;
+  --map-muted: #4b5563;
+  --map-halo: #f7f7f5;
+  --map-selected: #111827;
+  --map-selected-underlay: rgb(29 78 216 / 16%);
+  --map-tip-bg: #ffffff;
+  --map-tip-border: #d4d4cf;
+}
+
+/* Dark mode: chosen with the toolbar toggle (main.tsx sets data-theme). */
+:root[data-theme="dark"] {
+  --surface: #1b1f27;
+  --map-bg: #12151b;
+  --border: #2c323d;
+  --border-strong: #3d4451;
+  --text: #e6e8ec;
+  --text-muted: #a3abb9;
+  --accent: #7ea2ff;
+  --panel-shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 6px 20px rgb(0 0 0 / 35%);
+  --hover-bg: #252a33;
+  --active-bg: #1e2a47;
+  --divider-soft: #262b34;
+  --status-bg: rgb(18 21 27 / 85%);
+  --unavailable: #8b93a1;
+  --swatch-ring: rgb(255 255 255 / 25%);
+  --error-text: #fca5a5;
+  --error-bg: #2a1617;
+  --error-border: #5b2326;
+  --planned-text: #fbbf24;
+  --planned-border: #5c4313;
+  --planned-bg: #2a2210;
+  --partial-text: #93b4ff;
+  --partial-border: #2b3d6b;
+  --partial-bg: #18213a;
+  --map-text: #e6e8ec;
+  --map-muted: #b4bcc8;
+  --map-halo: #12151b;
+  --map-selected: #f9fafb;
+  --map-selected-underlay: rgb(126 162 255 / 22%);
+  --map-tip-bg: #1b1f27;
+  --map-tip-border: #3d4451;
 }
 
 .app-shell {
@@ -60,8 +117,10 @@
   white-space: nowrap;
 }
 .tool-button .MuiButton-startIcon { margin-right: 6px; margin-left: 0; }
-.tool-button:hover { color: var(--text); background: #f1f1ee; }
-.tool-button.is-active { color: var(--accent); background: #eef2fd; }
+.tool-button:hover { color: var(--text); background: var(--hover-bg); }
+.tool-button.is-active { color: var(--accent); background: var(--active-bg); }
+.theme-toggle.MuiIconButton-root { color: var(--text-muted); }
+.theme-toggle.MuiIconButton-root:hover { color: var(--text); background: var(--hover-bg); }
 
 .search-box { width: 260px; }
 .search-box .MuiOutlinedInput-root { height: 34px; background: var(--map-bg); }
@@ -75,7 +134,8 @@
   min-height: 0;
   overflow: hidden;
 }
-.game-map-canvas { position: absolute; inset: 0; }
+.game-map-canvas { position: absolute; inset: 0; touch-action: none; }
+.game-map-canvas canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .game-map-canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .map-message {
@@ -105,7 +165,7 @@
   padding: 3px 8px;
   font-size: 12px;
   color: var(--text-muted);
-  background: rgb(247 247 245 / 85%);
+  background: var(--status-bg);
   border-radius: 4px;
   pointer-events: none;
 }
@@ -166,8 +226,8 @@
 .panel-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .requirement-id { font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.04em; }
 .status-chip.MuiChip-root { height: 20px; font-size: 11px; }
-.status-planned.MuiChip-root { color: #92400e; border-color: #f0c78a; background: #fffbf0; }
-.status-partial.MuiChip-root { color: #1e40af; border-color: #bfd0f8; background: #f5f8ff; }
+.status-planned.MuiChip-root { color: var(--planned-text); border-color: var(--planned-border); background: var(--planned-bg); }
+.status-partial.MuiChip-root { color: var(--partial-text); border-color: var(--partial-border); background: var(--partial-bg); }
 
 .panel-progress { flex: none; height: 2px !important; }
 
@@ -201,13 +261,13 @@
 
 .legend-list { list-style: none; margin: 12px 0 0; padding: 0; }
 .legend-list li { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
-.legend-list li + li { border-top: 1px solid #f0f0ec; }
+.legend-list li + li { border-top: 1px solid var(--divider-soft); }
 .legend-name { flex: 1; }
 .legend-count { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 .help-list { margin: 12px 0 0; }
 .help-list > div { padding: 6px 0; }
-.help-list > div + div { border-top: 1px solid #f0f0ec; }
+.help-list > div + div { border-top: 1px solid var(--divider-soft); }
 .help-list dt { font-weight: 600; }
 .help-list dd { margin: 2px 0 0; color: var(--text-muted); }
 
@@ -217,7 +277,7 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  box-shadow: 0 0 0 1px rgb(17 24 39 / 15%);
+  box-shadow: 0 0 0 1px var(--swatch-ring);
 }
 
 /* ---------- Game information panel ---------- */
@@ -242,15 +302,15 @@
   place-items: center;
   font-size: 12px;
   color: var(--text-muted);
-  background: #f1f1ee;
+  background: var(--hover-bg);
   border: 1px solid var(--border);
 }
 .panel-error {
   margin-bottom: 12px !important;
   padding: 8px 10px;
-  color: #991b1b;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  color: var(--error-text);
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
   border-radius: 6px;
 }
 .info-fields { margin: 14px 0 0; }
@@ -259,7 +319,7 @@
   grid-template-columns: 112px 1fr;
   gap: 8px;
   padding: 6px 0;
-  border-top: 1px solid #f0f0ec;
+  border-top: 1px solid var(--divider-soft);
 }
 .info-field:first-child { border-top: 0; padding-top: 0; }
 .info-field dt { color: var(--text-muted); }
@@ -273,7 +333,7 @@
   text-transform: uppercase;
   color: var(--text-muted);
 }
-.unavailable { color: #6b7280; font-style: italic; }
+.unavailable { color: var(--unavailable); font-style: italic; }
 .chip-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .chip-list .MuiChip-root { height: 22px; font-size: 12px; }
 .similar-list { margin: 0; padding-left: 20px; }

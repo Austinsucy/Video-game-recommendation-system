@@ -9,13 +9,19 @@ import FeaturePanelHost from './features/FeaturePanelHost';
 import { featureButtonId, type FeatureId } from './features/features';
 import { getGameDetails, getMap } from './services/gameService';
 import type { GameDetails, GameSummary, MapData, MapGame } from './services/gameService';
+import type { ThemeMode } from './theme';
 import './app.css';
 
 // .info-panel width plus its margins in app.css. focusGame centres games in
 // the part of the map the panel does not cover.
 const INFO_PANEL_SPACE = 384;
 
-export default function App() {
+interface AppProps {
+  themeMode: ThemeMode;
+  onToggleThemeMode: () => void;
+}
+
+export default function App({ themeMode, onToggleThemeMode }: AppProps) {
   const [map, setMap] = useState<MapData | null>(null);
   const [mapError, setMapError] = useState('');
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -114,6 +120,8 @@ export default function App() {
         activeFeature={activeFeature}
         onToggleFeature={toggleFeature}
         onSearchSelect={selectAndLocate}
+        themeMode={themeMode}
+        onToggleThemeMode={onToggleThemeMode}
       />
 
       <main
@@ -128,6 +136,7 @@ export default function App() {
             games={games}
             selectedId={selectedGame?.id ?? null}
             onSelectGame={selectGame}
+            themeMode={themeMode}
           />
         )}
 
