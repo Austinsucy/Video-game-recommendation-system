@@ -34,7 +34,13 @@ def factory():
     exists for one connection. Without it, SQLAlchemy would open a second
     connection and find an empty database, which is a confusing failure.
     """
-    engine = create_engine("sqlite://", poolclass=StaticPool)
+    # check_same_thread=False lets the API tests' TestClient query this
+    # database from FastAPI's worker thread.
+    engine = create_engine(
+        "sqlite://",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
 
     # Same foreign key setup as the real database, otherwise tests would pass
     # here and fail in production.
