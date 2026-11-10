@@ -84,7 +84,11 @@ export default function GameInfoPanel({ game, details, error, onClose, onSelectS
           <Field label="Genres"><ChipList items={game.genres} /></Field>
           <Field label="Release year">{details?.releaseYear ?? <Unavailable />}</Field>
           <Field label="Platforms">{details?.platforms.length ? details.platforms.join(', ') : <Unavailable />}</Field>
-          <Field label="Rating">{details?.rating ?? <Unavailable />}</Field>
+          <Field label="Rating">
+            {details?.rating != null
+              ? `${details.rating}${details.ratingMax != null ? ` / ${details.ratingMax}` : ''}`
+              : <Unavailable />}
+          </Field>
           <Field label="Average playtime">
             {details?.averagePlaytimeHours != null ? `${details.averagePlaytimeHours} hours` : <Unavailable />}
           </Field>

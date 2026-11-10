@@ -60,7 +60,7 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
         if (!ignore) {
           setDetailsError({
             id: selectedGame.id,
-            message: 'This game\'s information could not be loaded. Select the game again to retry.',
+            message: 'This game\'s information could not be loaded. Close this panel and select the game again to retry.',
           });
         }
       });
