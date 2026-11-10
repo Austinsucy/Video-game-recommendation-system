@@ -26,6 +26,7 @@ We are beginning our first scrum cycle. Current work focuses on:
 │
 ├── backend/app/
 │   ├── db.py                  # SQLite connection for data/games.db
+│   ├── main.py                # Read-only FastAPI app (GET /games/{id})
 │   └── models.py              # SQLAlchemy tables (see DATABASE.md)
 │
 ├── pipeline/
@@ -58,7 +59,7 @@ We are beginning our first scrum cycle. Current work focuses on:
 └── requirements-embeddings.txt  # Optional, for the two embedding methods
 ```
 
-The FastAPI backend (`backend/app/main.py` and its routes) has not been started yet.
+The FastAPI backend is `backend/app/main.py`. So far it serves `GET /games/{id}`.
 
 ## Technology
 
@@ -174,7 +175,22 @@ Open the address it prints, usually http://localhost:5173. The page reloads when
 - The website reads `data/map.db` directly. After a new map is published, refresh the page; nothing needs copying.
 - `npm run build` makes a production build in `frontend/dist/`, and `npm run lint` checks the code.
 
-### 4. Change the map (pipeline)
+### 4. Run the API
+
+The info panel loads game details from the API, so start it in a second terminal from the repository root:
+
+```bash
+python -m uvicorn backend.app.main:app --port 8000
+```
+
+Then open http://localhost:8000/games/58 to check it (the interactive docs are at `/docs`). The API opens `data/games.db` read-only and only answers GET requests.
+
+| Variable | Used by | Default |
+|---|---|---|
+| `CORS_ALLOW_ORIGINS` | API: comma-separated website origins allowed to call it | `http://localhost:5173,http://localhost:4173` |
+| `VITE_API_BASE_URL` | Website: where the API lives, with no trailing slash. Set it when building for a host; the default only works on your own machine | `http://localhost:8000` |
+
+### 5. Change the map (pipeline)
 
 You only need this to build a new map version. Every setting lives in `config/map_config.yaml`, and `docs/decisions.md` explains the current choices.
 
@@ -190,7 +206,7 @@ You only need this to build a new map version. Every setting lives in `config/ma
 - Build published maps from a clean environment with the pinned `requirements.txt`, so the layout matches on every machine (REL 2).
 - After publishing, commit `data/games.db` and `data/map.db` together.
 
-### 5. Re-import the games (rare)
+### 6. Re-import the games (rare)
 
 Re-importing is only needed after changing the dataset, the selection rule, or the tag vocabulary and aliases.
 
