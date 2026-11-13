@@ -7,6 +7,7 @@ import MapControls from './components/map/MapControls';
 import TopToolbar from './components/toolbar/TopToolbar';
 import FeaturePanelHost from './features/FeaturePanelHost';
 import { featureButtonId, type FeatureId } from './features/features';
+import { matchesGenre } from './features/genreFilter';
 import { getGameDetails, getMap } from './services/gameService';
 import type { GameDetails, GameSummary, MapData, MapGame } from './services/gameService';
 import './app.css';
@@ -23,6 +24,7 @@ export default function App() {
   const [details, setDetails] = useState<GameDetails | null>(null);
   const [detailsError, setDetailsError] = useState<{ id: number; message: string } | null>(null);
   const [activeFeature, setActiveFeature] = useState<FeatureId | null>(null);
+  const [selectedGenre, setSelectedGenre] = useState('');
   const mapRef = useRef<GameMapHandle>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const infoPanelOpen = selectedGame !== null;
@@ -104,6 +106,7 @@ export default function App() {
   }
 
   const games = map?.games ?? null;
+  const matchingCount = games?.filter((game) => matchesGenre(game, selectedGenre)).length ?? 0;
   const visibleDetails = selectedGame && details?.id === selectedGame.id ? details : null;
   const visibleError = selectedGame && detailsError?.id === selectedGame.id ? detailsError.message : '';
 
@@ -127,6 +130,7 @@ export default function App() {
             ref={mapRef}
             games={games}
             selectedId={selectedGame?.id ?? null}
+            selectedGenre={selectedGenre}
             onSelectGame={selectGame}
           />
         )}
@@ -149,8 +153,11 @@ export default function App() {
 
         {map && games && games.length > 0 && (
           <>
-            <p id="map-instructions" className="map-status">
-              {games.length.toLocaleString()} games · map {map.version}
+            <p id="map-instructions" className="map-status" aria-live="polite">
+              {selectedGenre
+                ? `${matchingCount.toLocaleString()} of ${games.length.toLocaleString()} games · ${selectedGenre}`
+                : `${games.length.toLocaleString()} games`}
+              {' · '}map {map.version}
               <span className="map-hint"> · Drag to pan, scroll to zoom, click a dot for details</span>
             </p>
             <MapControls
@@ -162,7 +169,13 @@ export default function App() {
         )}
 
         {activeFeature && (
-          <FeaturePanelHost feature={activeFeature} games={games ?? []} onClose={closeFeature} />
+          <FeaturePanelHost
+            feature={activeFeature}
+            games={games ?? []}
+            selectedGenre={selectedGenre}
+            onGenreChange={setSelectedGenre}
+            onClose={closeFeature}
+          />
         )}
 
         {selectedGame && (
