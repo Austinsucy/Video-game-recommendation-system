@@ -1,5 +1,5 @@
 import { useEffect, useImperativeHandle, useRef, type Ref } from 'react';
-import type { MapGame } from '../../services/gameService';
+import type { GameSummary, MapGame } from '../../services/gameService';
 import type { ThemeMode } from '../../theme';
 import { createDotLayer, drawDots2d, type DotData, type DotView } from './dotLayer';
 import { baseRadius, dotScale, labelSize, PointGrid, popularityScores } from './mapScale';
@@ -29,7 +29,16 @@ export interface GameMapHandle {
 interface GameMapProps {
   games: MapGame[];
   selectedId: number | null;
+  /**
+   * The selected game's similar games, once they have loaded. The map draws a
+   * line to each one and moves to show them all.
+   */
+  similarGames: GameSummary[] | undefined;
+  /** Width in px covered by a panel on the right; the map frames a web in the rest. */
+  obscuredRight: number;
   onSelectGame: (game: MapGame) => void;
+  /** A click on empty map, as opposed to a drag. */
+  onClickBackground: () => void;
   /** Redraws the labels and highlights in the new theme's colours. */
   themeMode: ThemeMode;
   ref?: Ref<GameMapHandle>;
@@ -39,6 +48,11 @@ const FIT_PADDING = 40;
 const MIN_ZOOM_FACTOR = 0.6; // relative to the fitted zoom
 const MAX_ZOOM_FACTOR = 30;
 const FOCUS_ZOOM_FACTOR = 5;
+const WEB_PADDING = 90;
+const WEB_GROW_MS = 420; // each line's growth
+const WEB_STAGGER_MS = 22; // delay between one line starting and the next
+const WEB_FADE_MS = 150;
+const GLIDE_MS = 900; // the slower camera move to a game or its web
 const ZOOM_STEP = 1.5; // per +/− key press or button click
 // Wheel zoom per pixel of scroll. Trackpad pinches arrive as Ctrl+wheel
 // events with much smaller deltas, so they get a faster rate.
@@ -95,10 +109,22 @@ interface MapController {
   zoomAtPointer(factor: number): void;
   fit(): void;
   focusGame(id: number, obscuredRight: number): void;
+  setWeb(selectedId: number | null, similarGames: GameSummary[] | undefined, obscuredRight: number): void;
   render(): void;
 }
 
 type Box = [left: number, top: number, right: number, bottom: number];
+
+const easeOut = (t: number) => 1 - (1 - t) ** 3;
+const easeInOut = (t: number) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
+
+/** The lines from one game to its similar games, as draw indices. */
+interface Web {
+  source: number;
+  targets: number[];
+  startedAt: number;
+  fadingSince: number | null;
+}
 
 function overlaps(box: Box, placed: Box[]) {
   return placed.some((p) => box[0] < p[2] && box[2] > p[0] && box[1] < p[3] && box[3] > p[1]);
@@ -109,18 +135,20 @@ function hexToRgb(hex: string): [number, number, number] {
   return [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255];
 }
 
-export default function GameMap({ games, selectedId, onSelectGame, themeMode, ref }: GameMapProps) {
+export default function GameMap({ games, selectedId, similarGames, obscuredRight, onSelectGame, onClickBackground, themeMode, ref }: GameMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const dotCanvasRef = useRef<HTMLCanvasElement>(null);
   const labelCanvasRef = useRef<HTMLCanvasElement>(null);
   const controllerRef = useRef<MapController | null>(null);
   const onSelectRef = useRef(onSelectGame);
+  const onClickBackgroundRef = useRef(onClickBackground);
   const selectedIdRef = useRef(selectedId);
   const paletteRef = useRef<MapPalette | null>(null);
 
   useEffect(() => {
     onSelectRef.current = onSelectGame;
-  }, [onSelectGame]);
+    onClickBackgroundRef.current = onClickBackground;
+  }, [onSelectGame, onClickBackground]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -175,24 +203,50 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
     let hovered = -1;
     let frame = 0;
     let animation = 0;
+    let web: Web | null = null;
+    // Counts the user's own pans and zooms, so a web that arrives after one
+    // does not move the view out from under them (GM 2).
+    let userMoves = 0;
+    let movesAtSelection = 0;
+    let trackedSelection: number | null = null;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-    function fitView(): View {
-      const spanX = Math.max(maxX - minX, 1e-6);
-      const spanY = Math.max(maxY - minY, 1e-6);
-      const zoom = Math.max(
-        Math.min((width - 2 * FIT_PADDING) / spanX, (height - 2 * FIT_PADDING) / spanY),
+    function clampZoom(zoom: number) {
+      return Math.min(fitZoom * MAX_ZOOM_FACTOR, Math.max(fitZoom * MIN_ZOOM_FACTOR, zoom));
+    }
+
+    function visibleWidth(obscuredRight: number) {
+      return Math.max(width - obscuredRight, width / 2);
+    }
+
+    // The view that fits a box of map coordinates into the left
+    // `availableWidth` px. `limitZoom` runs before the pan is worked out, so a
+    // limited zoom still centres the box.
+    function viewForBox(
+      left: number, top: number, right: number, bottom: number,
+      availableWidth: number, padding: number, limitZoom = (zoom: number) => zoom,
+    ): View {
+      const zoom = limitZoom(Math.max(
+        Math.min(
+          (availableWidth - 2 * padding) / Math.max(right - left, 1e-6),
+          (height - 2 * padding) / Math.max(bottom - top, 1e-6),
+        ),
         1e-6,
-      );
+      ));
       return {
         zoom,
-        panX: width / 2 - ((minX + maxX) / 2) * zoom,
-        panY: height / 2 - ((minY + maxY) / 2) * zoom,
+        panX: availableWidth / 2 - ((left + right) / 2) * zoom,
+        panY: height / 2 - ((top + bottom) / 2) * zoom,
       };
+    }
+
+    function fitView(): View {
+      return viewForBox(minX, minY, maxX, maxY, width, FIT_PADDING);
     }
 
     // Zoom limits, and at least PAN_MARGIN px of the map on screen (bounded pan, GM 2).
     function clamp(next: View): View {
-      const zoom = Math.min(fitZoom * MAX_ZOOM_FACTOR, Math.max(fitZoom * MIN_ZOOM_FACTOR, next.zoom));
+      const zoom = clampZoom(next.zoom);
       const scale = zoom / next.zoom;
       let { panX, panY } = next;
       if (scale !== 1) {
@@ -220,27 +274,43 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
       animation = 0;
     }
 
-    function animateTo(target: View) {
+    function takeControl() {
+      userMoves++;
       stopAnimation();
-      const from = view;
+    }
+
+    // The zoom changes by an equal ratio each step and the map point at the
+    // screen centre travels in a straight line, so a large zoom change reads
+    // as one steady move.
+    function animateTo(target: View, duration = ANIMATION_MS, ease = easeOut) {
+      stopAnimation();
       const to = clamp(target);
+      if (reducedMotion.matches) {
+        setView(to);
+        return;
+      }
+      const from = view;
+      const centreX = (v: View) => (width / 2 - v.panX) / v.zoom;
+      const centreY = (v: View) => (height / 2 - v.panY) / v.zoom;
       const start = performance.now();
       const step = (now: number) => {
-        const t = Math.min(1, (now - start) / ANIMATION_MS);
-        const e = 1 - (1 - t) ** 3; // ease-out cubic
+        const t = Math.min(1, (now - start) / duration);
+        const e = ease(t);
+        const zoom = from.zoom * (to.zoom / from.zoom) ** e;
         view = {
-          zoom: from.zoom + (to.zoom - from.zoom) * e,
-          panX: from.panX + (to.panX - from.panX) * e,
-          panY: from.panY + (to.panY - from.panY) * e,
+          zoom,
+          panX: width / 2 - (centreX(from) + (centreX(to) - centreX(from)) * e) * zoom,
+          panY: height / 2 - (centreY(from) + (centreY(to) - centreY(from)) * e) * zoom,
         };
-        draw();
+        // Set before drawing: drawWeb reads it to know whether this loop will draw the next frame.
         animation = t < 1 ? requestAnimationFrame(step) : 0;
+        draw();
       };
       animation = requestAnimationFrame(step);
     }
 
     function zoomedView(factor: number, x: number, y: number): View {
-      const zoom = Math.min(fitZoom * MAX_ZOOM_FACTOR, Math.max(fitZoom * MIN_ZOOM_FACTOR, view.zoom * factor));
+      const zoom = clampZoom(view.zoom * factor);
       const scale = zoom / view.zoom;
       return { zoom, panX: x - (x - view.panX) * scale, panY: y - (y - view.panY) * scale };
     }
@@ -273,6 +343,62 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
       return `${weight} ${size}px ${FONT_FAMILY}`;
     }
 
+    // Dims the map, then shoots a line from a game to each similar game, most
+    // similar first. A web that is fading out belongs to the previous selection.
+    function drawWeb(ctx: CanvasRenderingContext2D, colors: MapPalette, radius: number) {
+      if (!web) return;
+      const now = performance.now();
+      const still = reducedMotion.matches;
+      const fade = web.fadingSince === null ? 1 : still ? 0 : 1 - (now - web.fadingSince) / WEB_FADE_MS;
+      if (fade <= 0) {
+        web = null;
+        return;
+      }
+      const { zoom, panX, panY } = view;
+      const { source } = web;
+      const elapsed = still ? Infinity : now - web.startedAt;
+      const fromX = data.xs[source] * zoom + panX;
+      const fromY = data.ys[source] * zoom + panY;
+      let moving = web.fadingSince !== null;
+
+      ctx.globalAlpha = 0.6 * Math.min(1, elapsed / WEB_GROW_MS) * fade;
+      ctx.fillStyle = colors.halo;
+      ctx.fillRect(0, 0, width, height);
+
+      web.targets.forEach((d, rank) => {
+        const linear = Math.min(1, Math.max(0, (elapsed - rank * WEB_STAGGER_MS) / WEB_GROW_MS));
+        if (linear < 1) moving = true;
+        if (linear === 0) return;
+        const grown = easeOut(linear);
+        const x = data.xs[d] * zoom + panX;
+        const y = data.ys[d] * zoom + panY;
+
+        const gradient = ctx.createLinearGradient(fromX, fromY, x, y);
+        gradient.addColorStop(0, hexColors[source]);
+        gradient.addColorStop(1, hexColors[d]);
+        ctx.globalAlpha = 0.9 * fade;
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = gradient;
+        ctx.beginPath();
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(fromX + (x - fromX) * grown, fromY + (y - fromY) * grown);
+        ctx.stroke();
+        if (linear < 1) return;
+
+        ctx.globalAlpha = fade;
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(radius * data.scales[d], 3) + 1, 0, Math.PI * 2);
+        ctx.fillStyle = hexColors[d];
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = colors.selected;
+        ctx.stroke();
+      });
+      ctx.globalAlpha = 1;
+      // A running camera animation already draws every frame.
+      if (moving && !animation) render();
+    }
+
     function drawOverlay(dotView: DotView) {
       const ctx = context!;
       const colors = paletteRef.current ?? readPalette(container!);
@@ -283,6 +409,8 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
       const placed: Box[] = [];
       ctx.textBaseline = 'middle';
       ctx.lineJoin = 'round';
+
+      drawWeb(ctx, colors, radius);
 
       // Selected and hovered games get a tooltip-style label, reserved first so
       // the popular labels avoid them.
@@ -407,7 +535,7 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
 
     function onPointerDown(event: PointerEvent) {
       if (event.button !== 0) return;
-      stopAnimation();
+      takeControl();
       try {
         container!.setPointerCapture(event.pointerId); // keep dragging when the pointer leaves the map
       } catch {
@@ -435,10 +563,12 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
         travel += Math.hypot(dx, dy);
         pointers.set(event.pointerId, point);
         if (travel >= CLICK_SLOP) {
+          takeControl();
           setHovered(-1);
           setView({ ...view, panX: view.panX + dx, panY: view.panY + dy });
         }
       } else if (pointers.size === 2) {
+        takeControl();
         const before = pinchState();
         pointers.set(event.pointerId, point);
         const after = pinchState();
@@ -456,12 +586,13 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
         const point = local(event);
         const d = hitTest(point.x, point.y);
         if (d >= 0) onSelectRef.current(gameAt(d));
+        else onClickBackgroundRef.current();
       }
     }
 
     function onWheel(event: WheelEvent) {
       event.preventDefault();
-      stopAnimation();
+      takeControl();
       const point = local(event);
       const rate = event.deltaMode ? WHEEL_LINE_ZOOM_RATE : event.ctrlKey ? PINCH_ZOOM_RATE : WHEEL_ZOOM_RATE;
       const factor = Math.exp(-event.deltaY * rate);
@@ -499,7 +630,7 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
         // Arrow keys only belong to the map when it has focus; elsewhere they
         // scroll panels and move through lists.
         if (document.activeElement !== container) return;
-        stopAnimation();
+        takeControl();
         setView({ ...view, panX: view.panX + pan[0], panY: view.panY + pan[1] });
       } else if (event.key === '+' || event.key === '=') {
         controllerRef.current?.zoomAtPointer(ZOOM_STEP);
@@ -536,28 +667,63 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
 
     controllerRef.current = {
       zoomAround(factor, x, y, animate) {
+        takeControl();
         const next = zoomedView(factor, x, y);
         if (animate) animateTo(next);
         else setView(next);
       },
       zoomAtPointer(factor) {
-        stopAnimation();
+        takeControl();
         const { x, y } = pointer ?? { x: width / 2, y: height / 2 };
         setView(zoomedView(factor, x, y));
       },
       fit() {
+        takeControl();
         animateTo(fitView());
       },
       focusGame(id, obscuredRight) {
         const d = drawIndexById.get(id);
         if (d === undefined) return;
-        const zoom = Math.min(fitZoom * MAX_ZOOM_FACTOR, Math.max(view.zoom, fitZoom * FOCUS_ZOOM_FACTOR));
-        const visibleWidth = Math.max(width - obscuredRight, width / 2);
+        const zoom = clampZoom(Math.max(view.zoom, fitZoom * FOCUS_ZOOM_FACTOR));
         animateTo({
           zoom,
-          panX: visibleWidth / 2 - data.xs[d] * zoom,
+          panX: visibleWidth(obscuredRight) / 2 - data.xs[d] * zoom,
           panY: height / 2 - data.ys[d] * zoom,
-        });
+        }, GLIDE_MS, easeInOut);
+      },
+      setWeb(selectedId, similarGames, obscuredRight) {
+        if (selectedId !== trackedSelection) {
+          trackedSelection = selectedId;
+          movesAtSelection = userMoves;
+        }
+        const source = drawIndexById.get(selectedId ?? NaN);
+        const targets: number[] = [];
+        if (source !== undefined) {
+          for (const { id } of similarGames ?? []) {
+            const d = drawIndexById.get(id);
+            if (d !== undefined) targets.push(d);
+          }
+        }
+        if (source === undefined || targets.length === 0) {
+          if (web && web.fadingSince === null) web.fadingSince = performance.now();
+          return;
+        }
+        const shown = web && web.fadingSince === null && web.source === source
+          && web.targets.length === targets.length && web.targets.every((d, i) => d === targets[i]);
+        if (shown) return;
+
+        web = { source, targets, startedAt: performance.now(), fadingSince: null };
+        if (userMoves !== movesAtSelection) return;
+        const xs = [source, ...targets].map((d) => data.xs[d]);
+        const ys = [source, ...targets].map((d) => data.ys[d]);
+        animateTo(
+          viewForBox(
+            Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys),
+            visibleWidth(obscuredRight), WEB_PADDING, clampZoom,
+          ),
+          GLIDE_MS,
+          easeInOut,
+        );
       },
       render,
     };
@@ -579,11 +745,13 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
     };
   }, [games]);
 
-  // Selection only redraws the overlay, so the viewport stays where the user left it.
+  // Selecting a game redraws the overlay at once. The view moves when the
+  // game's similar games arrive.
   useEffect(() => {
     selectedIdRef.current = selectedId;
+    controllerRef.current?.setWeb(selectedId, similarGames, obscuredRight);
     controllerRef.current?.render();
-  }, [games, selectedId]);
+  }, [games, selectedId, similarGames, obscuredRight]);
 
   // main.tsx switches the CSS variables before React re-renders, so they are current here.
   useEffect(() => {

@@ -73,7 +73,7 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
   }, [infoPanelOpen]);
 
   // Every way of choosing a game (node click, search, similar games, and later
-  // scan) goes through here. A node click leaves the viewport alone.
+  // scan) goes through here.
   const selectGame = useCallback((game: MapGame) => {
     setSelectedGame(game);
   }, []);
@@ -135,7 +135,10 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
             ref={mapRef}
             games={games}
             selectedId={selectedGame?.id ?? null}
+            similarGames={visibleDetails?.similarGames}
+            obscuredRight={infoPanelOpen ? INFO_PANEL_SPACE : 0}
             onSelectGame={selectGame}
+            onClickBackground={closeInfoPanel}
             themeMode={themeMode}
           />
         )}
