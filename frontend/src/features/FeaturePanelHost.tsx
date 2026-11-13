@@ -7,10 +7,14 @@ import RecommendationsPanel from './RecommendationsPanel';
 import SaveSharePanel from './SaveSharePanel';
 import ScanPanel from './ScanPanel';
 import SteamLibraryPanel from './SteamLibraryPanel';
+import type { ScanState } from './useScan';
 
 interface FeaturePanelHostProps {
   feature: FeatureId;
   games: MapGame[];
+  /** Every genre in the map, sorted. */
+  genres: string[];
+  scan: ScanState;
   onClose: () => void;
   selectedGenre: string;
   onGenreChange: (genre: string) => void;
@@ -20,6 +24,8 @@ interface FeaturePanelHostProps {
 export default function FeaturePanelHost({
   feature,
   games,
+  genres,
+  scan,
   onClose,
   selectedGenre,
   onGenreChange,
@@ -31,7 +37,7 @@ export default function FeaturePanelHost({
     case 'genres':
       return (
         <GenresPanel
-          genres={[...new Set(games.flatMap((game) => game.genres))].sort()}
+          genres={genres}
           selectedGenre={selectedGenre}
           onGenreChange={onGenreChange}
           onClose={onClose}
@@ -42,7 +48,7 @@ export default function FeaturePanelHost({
       return <LegendPanel games={games} onClose={onClose} />;
 
     case 'scan':
-      return <ScanPanel onClose={onClose} />;
+      return <ScanPanel scan={scan} onClose={onClose} />;
 
     case 'share':
       return <SaveSharePanel onClose={onClose} />;

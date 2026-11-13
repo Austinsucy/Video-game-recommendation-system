@@ -356,3 +356,22 @@
   .search-box { width: 200px; }
   .wordmark { font-size: 14px; }
 }
+
+/* ---------- Scan (SC 1) ---------- */
+
+.scan-controls { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
+.scan-countdown { height: 3px; border-radius: 2px; overflow: hidden; background: var(--divider-soft); }
+.scan-countdown > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left;
+  animation: scan-countdown linear forwards;
+}
+@keyframes scan-countdown { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.scan-status:empty { display: none; }
+.scan-pool { color: var(--text-muted); }
+.scan-status strong { font-weight: 600; }
+@media (prefers-reduced-motion: reduce) {
+  .scan-countdown { display: none; }
+}

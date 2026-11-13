@@ -8,6 +8,7 @@ import TopToolbar from './components/toolbar/TopToolbar';
 import FeaturePanelHost from './features/FeaturePanelHost';
 import { featureButtonId, type FeatureId } from './features/features';
 import { matchesGenre } from './features/genreFilter';
+import { useScan } from './features/useScan';
 import { getGameDetails, getMap } from './services/gameService';
 import type { GameDetails, GameSummary, MapData, MapGame } from './services/gameService';
 import type { ThemeMode } from './theme';
@@ -74,8 +75,8 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
     if (infoPanelOpen) closeButton.current?.focus();
   }, [infoPanelOpen]);
 
-  // Every way of choosing a game (node click, search, similar games, and later
-  // scan) goes through here.
+  // Every way of choosing a game (node click, search, similar games, scan)
+  // goes through here. A node click leaves the viewport alone.
   const selectGame = useCallback((game: MapGame) => {
     setSelectedGame(game);
   }, []);
@@ -85,12 +86,27 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
     mapRef.current?.focusGame(game.id, INFO_PANEL_SPACE);
   }
 
+  // SC 1: scan picks go through selectAndLocate. Choosing a game yourself,
+  // closing the info panel or closing the Scan panel stops the scan.
+  const scan = useScan(map?.games ?? null, selectedGenre || null, selectAndLocate);
+
+  function chooseGame(game: MapGame) {
+    scan.stop();
+    selectGame(game);
+  }
+
+  function chooseAndLocate(game: MapGame) {
+    scan.stop();
+    selectAndLocate(game);
+  }
+
   function selectSimilar(summary: GameSummary) {
     const game = map?.games.find((record) => record.id === summary.id);
-    if (game) selectAndLocate(game);
+    if (game) chooseAndLocate(game);
   }
 
   function closeInfoPanel() {
+    scan.stop();
     setSelectedGame(null);
     setDetails(null);
     setDetailsError(null);
@@ -98,10 +114,12 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
   }
 
   function toggleFeature(id: FeatureId) {
+    if (activeFeature === 'scan') scan.stop();
     setActiveFeature((current) => (current === id ? null : id));
   }
 
   function closeFeature() {
+    if (activeFeature === 'scan') scan.stop();
     if (activeFeature) document.getElementById(featureButtonId(activeFeature))?.focus();
     setActiveFeature(null);
   }
@@ -116,6 +134,10 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
     () => games?.filter((game) => matchesGenre(game, selectedGenre)).length ?? 0,
     [games, selectedGenre],
   );
+  const genres = useMemo(
+    () => [...new Set((map?.games ?? []).flatMap((game) => game.genres))].sort(),
+    [map],
+  );
   const visibleDetails = selectedGame && details?.id === selectedGame.id ? details : null;
   const visibleError = selectedGame && detailsError?.id === selectedGame.id ? detailsError.message : '';
 
@@ -125,7 +147,7 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
         games={games}
         activeFeature={activeFeature}
         onToggleFeature={toggleFeature}
-        onSearchSelect={selectAndLocate}
+        onSearchSelect={chooseAndLocate}
         themeMode={themeMode}
         onToggleThemeMode={onToggleThemeMode}
       />
@@ -144,7 +166,7 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
             similarGames={visibleDetails?.similarGames}
             obscuredRight={infoPanelOpen ? INFO_PANEL_SPACE : 0}
             selectedGenre={selectedGenre}
-            onSelectGame={selectGame}
+            onSelectGame={chooseGame}
             onClickBackground={closeInfoPanel}
             themeMode={themeMode}
           />
@@ -187,8 +209,10 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
           <FeaturePanelHost
             feature={activeFeature}
             games={games ?? []}
+            genres={genres}
             selectedGenre={selectedGenre}
             onGenreChange={setSelectedGenre}
+            scan={scan}
             onClose={closeFeature}
           />
         )}
