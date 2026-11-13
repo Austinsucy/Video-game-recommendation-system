@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useRef, type KeyboardEvent, type Ref } from 'react';
+import { useEffect, useImperativeHandle, useRef, type Ref } from 'react';
 import type { MapGame } from '../../services/gameService';
 import type { ThemeMode } from '../../theme';
 import { createDotLayer, drawDots2d, type DotData, type DotView } from './dotLayer';
@@ -39,7 +39,12 @@ const FIT_PADDING = 40;
 const MIN_ZOOM_FACTOR = 0.6; // relative to the fitted zoom
 const MAX_ZOOM_FACTOR = 30;
 const FOCUS_ZOOM_FACTOR = 5;
-const ZOOM_STEP = 1.5;
+const ZOOM_STEP = 1.5; // per +/− key press or button click
+// Wheel zoom per pixel of scroll. Trackpad pinches arrive as Ctrl+wheel
+// events with much smaller deltas, so they get a faster rate.
+const WHEEL_ZOOM_RATE = 0.0015;
+const PINCH_ZOOM_RATE = 0.012;
+const WHEEL_LINE_ZOOM_RATE = 0.05; // wheels that scroll by lines, not pixels
 const KEY_PAN_STEP = 80;
 const PAN_MARGIN = 120; // px of the map that must stay on screen (bounded pan)
 const ANIMATION_MS = 200;
@@ -86,7 +91,8 @@ interface View {
 
 interface MapController {
   zoomAround(factor: number, x: number, y: number, animate: boolean): void;
-  panBy(dx: number, dy: number): void;
+  /** Zoom toward the mouse when it is over the map, else the centre. */
+  zoomAtPointer(factor: number): void;
   fit(): void;
   focusGame(id: number, obscuredRight: number): void;
   render(): void;
@@ -412,8 +418,12 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
       if (pointers.size === 2) pinchDistance = pinchState().distance;
     }
 
+    // Last mouse position over the map, for the +/− keys.
+    let pointer: { x: number; y: number } | null = null;
+
     function onPointerMove(event: PointerEvent) {
       const point = local(event);
+      if (event.pointerType === 'mouse') pointer = point;
       const last = pointers.get(event.pointerId);
       if (!last) {
         if (event.pointerType === 'mouse') setHovered(hitTest(point.x, point.y));
@@ -453,7 +463,8 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
       event.preventDefault();
       stopAnimation();
       const point = local(event);
-      const factor = Math.exp(-event.deltaY * (event.deltaMode ? 0.05 : 0.0015));
+      const rate = event.deltaMode ? WHEEL_LINE_ZOOM_RATE : event.ctrlKey ? PINCH_ZOOM_RATE : WHEEL_ZOOM_RATE;
+      const factor = Math.exp(-event.deltaY * rate);
       setView(zoomedView(factor, point.x, point.y));
     }
 
@@ -461,9 +472,46 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
     container.addEventListener('pointermove', onPointerMove);
     container.addEventListener('pointerup', onPointerUp);
     container.addEventListener('pointercancel', onPointerUp);
-    const onPointerLeave = () => setHovered(-1);
+    const onPointerLeave = () => {
+      pointer = null;
+      setHovered(-1);
+    };
     container.addEventListener('pointerleave', onPointerLeave);
     container.addEventListener('wheel', onWheel, { passive: false });
+
+    // Keyboard: arrows pan, + zooms toward the mouse, − zooms out from the
+    // centre. Works while the map has
+    // focus or the mouse is over it, so clicking a game (which moves focus to
+    // the info panel) does not switch the keys off. Typing in a field wins.
+    const KEY_PANS: Record<string, [number, number]> = {
+      ArrowLeft: [KEY_PAN_STEP, 0],
+      ArrowRight: [-KEY_PAN_STEP, 0],
+      ArrowUp: [0, KEY_PAN_STEP],
+      ArrowDown: [0, -KEY_PAN_STEP],
+    };
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="listbox"]')) return;
+      if (document.activeElement !== container && pointer === null) return;
+      const pan = KEY_PANS[event.key];
+      if (pan) {
+        // Arrow keys only belong to the map when it has focus; elsewhere they
+        // scroll panels and move through lists.
+        if (document.activeElement !== container) return;
+        stopAnimation();
+        setView({ ...view, panX: view.panX + pan[0], panY: view.panY + pan[1] });
+      } else if (event.key === '+' || event.key === '=') {
+        controllerRef.current?.zoomAtPointer(ZOOM_STEP);
+      } else if (event.key === '-' || event.key === '_') {
+        // Zooming out always keeps the centre still, wherever the mouse is.
+        controllerRef.current?.zoomAround(1 / ZOOM_STEP, width / 2, height / 2, false);
+      } else {
+        return;
+      }
+      event.preventDefault();
+    }
+    window.addEventListener('keydown', onKeyDown);
 
     // ---- Size
     function resize() {
@@ -492,9 +540,10 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
         if (animate) animateTo(next);
         else setView(next);
       },
-      panBy(dx, dy) {
+      zoomAtPointer(factor) {
         stopAnimation();
-        setView({ ...view, panX: view.panX + dx, panY: view.panY + dy });
+        const { x, y } = pointer ?? { x: width / 2, y: height / 2 };
+        setView(zoomedView(factor, x, y));
       },
       fit() {
         animateTo(fitView());
@@ -523,6 +572,7 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
       container.removeEventListener('pointercancel', onPointerUp);
       container.removeEventListener('pointerleave', onPointerLeave);
       container.removeEventListener('wheel', onWheel);
+      window.removeEventListener('keydown', onKeyDown);
       container.style.cursor = '';
       dots?.dispose();
       controllerRef.current = null;
@@ -569,29 +619,6 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
     };
   }, []);
 
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    const controller = controllerRef.current;
-    if (!controller || event.target !== event.currentTarget) return;
-    const pans: Record<string, [number, number]> = {
-      ArrowLeft: [KEY_PAN_STEP, 0],
-      ArrowRight: [-KEY_PAN_STEP, 0],
-      ArrowUp: [0, KEY_PAN_STEP],
-      ArrowDown: [0, -KEY_PAN_STEP],
-    };
-    const step = pans[event.key];
-    const { clientWidth, clientHeight } = event.currentTarget;
-    if (step) {
-      controller.panBy(step[0], step[1]);
-    } else if (event.key === '+' || event.key === '=') {
-      controller.zoomAround(ZOOM_STEP, clientWidth / 2, clientHeight / 2, false);
-    } else if (event.key === '-' || event.key === '_') {
-      controller.zoomAround(1 / ZOOM_STEP, clientWidth / 2, clientHeight / 2, false);
-    } else {
-      return;
-    }
-    event.preventDefault();
-  }
-
   return (
     <div
       ref={containerRef}
@@ -600,7 +627,6 @@ export default function GameMap({ games, selectedId, onSelectGame, themeMode, re
       role="region"
       aria-label="Game map"
       aria-describedby="map-instructions"
-      onKeyDown={handleKeyDown}
     >
       <canvas ref={dotCanvasRef} aria-hidden="true" />
       <canvas ref={labelCanvasRef} aria-hidden="true" />
