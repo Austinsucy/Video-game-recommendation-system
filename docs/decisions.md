@@ -16,8 +16,9 @@ Requirement references are to the System Requirements document (10/9/2026).
 | 4 | Vectorization method | Decided; published as map v2 | `votes_max`; map v1 used `votes_log_idf` |
 | 5 | Feature vocabulary | Decided | 15 new features, 64 new aliases |
 | 6 | "Tactical" tag | Decided | Display-only |
-| 7 | Similar-pairs list | Decided | 33 pairs (20 sequels, 13 cross-studio) |
+| 7 | Similar-pairs list | Decided (33) + Proposed (67) | 33 approved pairs (20 sequels, 13 cross-studio); 67 more proposed 2026-11-04 (20 sequels, 47 cross-studio), pending team approval. Map v2 has 89 of 100 as mutual top-15 |
 | 8 | Reproducible builds | Proposed | Build published maps with the pinned `requirements.txt` only |
+| 9 | Map rendering | Proposed | Custom WebGL dot layer + Canvas 2D labels instead of Cytoscape (CON 1 deviation); dot and label size by Steam reviews |
 
 ## 1. Similarity measure: cosine, 15 neighbours (decided)
 
@@ -183,5 +184,47 @@ Lab page despite identical input. Reruns on one machine are identical, and
 the CPU thread count makes no difference. `votes_log_idf` has no ties and
 matched exactly.
 
+K-Means is different: with several threads its labels can change between runs
+on the same vectors (seen on 89,500 games in the full-catalogue experiment,
+`docs/full-90k-findings.md`). `assign_clusters` therefore runs K-Means on one
+OpenMP thread.
+
 Proposal: build every published map version from a clean environment with the
 pinned `requirements.txt`, and prefer methods without distance ties (REL 2).
+
+## 9. Map rendering: custom canvas instead of Cytoscape (proposed)
+
+CON 1 lists Cytoscape.js for the map, and GM 2 asks for a Cytoscape preset
+layout. With map v3 (72,746 games), Cytoscape could not reach PERF 3 (30 fps
+pan and zoom). Measured on 2026-11-09 in the desktop app's built-in browser
+(Intel Arc 140T, 1.5× display scale):
+
+| Renderer | Pan | Zoom |
+|---|---|---|
+| Cytoscape 3.34, canvas | ~0.9 fps (1.2 s per frame) | ~0.6 fps |
+| Cytoscape 3.34, WebGL (`webgl: true`) | ~3.7 fps (~200 ms per frame) | ~1 fps |
+| Custom WebGL dots + 2D labels | 0.5 ms median, 4.3 ms worst JS per redraw | same |
+
+Cytoscape's WebGL mode still visits every node in JavaScript on each frame
+(~200 ms for 72,746 nodes), and the old constant-size styling restyled every
+node on zoom (~2.5–3.8 s each time).
+
+`frontend/src/components/map/` now draws the dots with WebGL: positions,
+sizes and colours are uploaded once, and a pan or zoom only changes a few
+shader uniforms. Labels, hover and the selected game are drawn on a 2D canvas
+on top. Browsers without WebGL fall back to drawing the dots in 2D. Hover,
+click to select, search focus, zoom buttons, keyboard pan and zoom, and the
+pan limits work as before.
+
+The look follows the Tag Vector Lab's "By Steam reviews" view:
+
+- popularity `t = (log(1 + reviews) / log(1 + most reviews))^2.5`, using
+  `games.popularity` in `map.db` (unknown counts, stored as -1, count as 0);
+- dot radius = base × (0.35 + 6.25·t) × 1.8, drawn at 55% opacity, least
+  reviewed first (the lab's size scale is 3; the app uses 2.5, a little smaller);
+- labels only for the 25 (zoomed out) or 40 (zoomed in) most reviewed games on
+  screen, at `10 + 11.25·t` px, skipping any that would overlap.
+
+Cytoscape is still in `package.json` but no longer used. Needs team sign-off:
+either accept the deviation from CON 1 / GM 2 and update the requirements doc,
+or cap the map at a size Cytoscape can draw at 30 fps.

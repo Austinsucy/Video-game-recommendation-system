@@ -9,10 +9,12 @@ Why SQLite at all? Our CON 1 requirement picked it, and it suits us: the whole
 database is a single file we can commit to the repo, so teammates get the data
 by running `git pull` instead of each setting up a database server.
 """
+import sqlite3
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 # Work out the repo root by walking up from this file:
 #   backend/app/db.py  ->  backend/app  ->  backend  ->  repo root
@@ -28,6 +30,23 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 # session, which is how we actually run queries.
 engine = create_engine(f"sqlite:///{DB_PATH}")
 SessionLocal = sessionmaker(engine)
+
+
+def read_only_sessionmaker(db_path: Path) -> sessionmaker[Session]:
+    """Sessions that SQLite itself refuses to write through, for the API."""
+    # as_uri() escapes the path. Left raw, a "#" or "?" in a folder name would
+    # cut the file name short and silently drop mode=ro.
+    uri = f"{db_path.resolve().as_uri()}?mode=ro"
+    # NullPool, because FastAPI serves 40 requests at once and SQLAlchemy's
+    # default pool holds 15 connections: 60 at once stalled until they timed out.
+    return sessionmaker(create_engine(
+        "sqlite://",
+        creator=lambda: sqlite3.connect(uri, uri=True, check_same_thread=False),
+        poolclass=NullPool,
+    ))
+
+
+ReadOnlySessionLocal = read_only_sessionmaker(DB_PATH)
 
 
 @event.listens_for(engine, "connect")

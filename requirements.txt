@@ -2,9 +2,11 @@ fastapi==0.162.0
 httpx==0.28.1
 numpy==2.5.4
 pandas==3.1.0
+pydantic==2.14.1
 pytest==9.1.1
 PyYAML==6.0.3
 scikit-learn==1.9.1
 scipy==1.18.1
 SQLAlchemy==2.1.6
+threadpoolctl==3.7.0
 uvicorn==0.54.0

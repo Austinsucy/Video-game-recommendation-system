@@ -1,16 +1,14 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import CssBaseline from '@mui/material/CssBaseline'
-import { ThemeProvider } from '@mui/material/styles'
 import './index.css'
-import App from './App.tsx'
-import { theme } from './theme.ts'
+import Root from './Root.tsx'
+import { initialThemeMode } from './themeMode.ts'
+
+const startMode = initialThemeMode()
+document.documentElement.dataset.theme = startMode // before the first paint, so there is no flash
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <App />
-    </ThemeProvider>
+    <Root startMode={startMode} />
   </StrictMode>,
 )

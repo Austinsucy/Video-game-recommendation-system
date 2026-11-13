@@ -20,16 +20,16 @@ export interface MapData {
   games: MapGame[];
 }
 
-// The GIP 1 fields. map.db has none of the fields below `MapGame`; they will
-// come from FastAPI GET /games/{id}. Until then they are null or empty and the
-// panel labels them unavailable.
-export interface GameDetails extends MapGame {
+// The GIP 1 fields, as FastAPI GET /games/{id} returns them.
+export interface GameDetails {
+  id: number;
   coverUrl: string | null;
   releaseYear: number | null;
   description: string | null;
   tags: string[];
   platforms: string[];
-  rating: string | null;
+  rating: number | null;
+  ratingMax: number | null;
   averagePlaytimeHours: number | null;
   storeUrl: string | null;
   similarGames: GameSummary[];
@@ -101,30 +101,67 @@ async function readMap(): Promise<MapData> {
         clusterId,
         clusterName,
         clusterColor: color,
-        popularity: typeof popularity === 'number' ? popularity : null,
+        // map.db stores -1 when Steam's review count is unknown.
+        popularity: typeof popularity === 'number' && popularity >= 0 ? popularity : null,
         genres: genresById.get(id) ?? [],
     };
   });
   return { version, games };
 }
 
-export async function getGameDetails(id: number): Promise<GameDetails> {
-  // These details were already loaded from map.db. Clicking needs no fetch.
-  // Replace the defaults below with the GET /games/{id} response when the
-  // backend exists, keeping this function's signature.
-  const { games } = await getMap();
-  const game = games.find((record) => record.id === id);
-  if (!game) throw new Error('This game is not in the map database.');
+const API_BASE_URL: string =
+  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+
+const isString = (value: unknown): value is string => typeof value === 'string';
+const isNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+const orNull = <T>(value: unknown, is: (v: unknown) => v is T): value is T | null =>
+  value === null || is(value);
+const listOf = <T>(value: unknown, is: (v: unknown) => v is T): value is T[] =>
+  Array.isArray(value) && value.every(is);
+
+function isGameSummary(value: unknown): value is GameSummary {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return isNumber(v.id) && isString(v.title);
+}
+
+function parseGameDetails(value: unknown): GameDetails | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const {
+    id, coverUrl, releaseYear, description, tags, platforms,
+    rating, ratingMax, averagePlaytimeHours, storeUrl, similarGames,
+  } = value as Record<string, unknown>;
+  if (
+    !isNumber(id) ||
+    !orNull(coverUrl, isString) ||
+    !orNull(releaseYear, isNumber) ||
+    !orNull(description, isString) ||
+    !listOf(tags, isString) ||
+    !listOf(platforms, isString) ||
+    !orNull(rating, isNumber) ||
+    !orNull(ratingMax, isNumber) ||
+    !orNull(averagePlaytimeHours, isNumber) ||
+    !orNull(storeUrl, isString) ||
+    !listOf(similarGames, isGameSummary)
+  ) {
+    return null;
+  }
   return {
-    ...game,
-    coverUrl: null,
-    releaseYear: null,
-    description: null,
-    tags: [],
-    platforms: [],
-    rating: null,
-    averagePlaytimeHours: null,
-    storeUrl: null,
-    similarGames: [],
+    id, coverUrl, releaseYear, description, tags, platforms,
+    rating, ratingMax, averagePlaytimeHours, storeUrl,
+    similarGames: similarGames.map((game) => ({ id: game.id, title: game.title })),
   };
+}
+
+export async function getGameDetails(id: number): Promise<GameDetails> {
+  const response = await fetch(`${API_BASE_URL}/games/${id}`);
+  if (!response.ok) {
+    throw new Error(`The game details request failed (${response.status}).`);
+  }
+  const details = parseGameDetails(await response.json());
+  if (!details || details.id !== id) {
+    throw new Error('Invalid game details response.');
+  }
+  return details;
 }

@@ -7,7 +7,7 @@
 #
 # If you are new to the project, the sections go:
 #   1. dataset      where the source CSV is
-#   2. selection    which ~1000 games we pick out of the 89,618 available
+#   2. selection    which games we pick out of the 89,618 available (all of them on this branch)
 #   3. fields       which CSV column becomes which database column
 #   4. weights      how much each feature category counts for the ML
 #   5. vocabulary   the official list of features
@@ -32,9 +32,13 @@
 # --reset`; published map v1 is unchanged.
 # =============================================================================
 
-map_version: "v2"
+map_version: "v3"
 random_seed: 42          # REL 2: every randomised step in the pipeline uses this
 cluster_count: 12        # placeholder - Austin/Kayne decide
+# CON 3 caps a published map at 1,100 games until PERF 1-3 are retested.
+# THIS BRANCH raises it so map v3 can hold the full catalogue. PERF 1-3
+# have not been retested at this size.
+max_map_games: 90000
 kmeans_n_init: 10        # K-Means restarts from different seeded centroids; the lowest-inertia run wins
 
 # -----------------------------------------------------------------------------
@@ -47,17 +51,21 @@ dataset:
   store_url_template: "https://store.steampowered.com/app/{appid}/"
 
 selection:
-  target_count: 1000                  # CON 3 caps the published map at 1100
+  # How many games to keep. null means no limit, which is only allowed with
+  # mode: all.
+  target_count: null
 
-  # HOW WE CHOOSE THE 1000
-  #   popular_recent   newest years first, most reviewed  <- what we use now
+  # HOW WE CHOOSE WHICH GAMES
+  #   popular_recent   newest years first, most reviewed  <- what main uses
   #   popular_pre2019  only <= max_year, most reviewed    <- what CON 3 says
+  #   all              every game that passes the minimums, no year filter
   #
-  # HEADS UP: these two disagree with each other. CON 3 in the NFR document
-  # says the map is "approximately 1,000 mostly pre-2019 games", but we are
-  # currently building from 2019 onward. Changing this one word and re-running
-  # the import switches it. Still needs a team decision.
-  mode: "popular_recent"
+  # THIS BRANCH USES `all` ON PURPOSE. It is a test build of the entire Steam
+  # catalogue, 89,618 games, so we can see what the full dataset looks like.
+  # Map v3 is built from it, with max_map_games raised above CON 3's 1,100 (see
+  # max_map_games). The database file is too big to commit. See DATABASE.md.
+  # The real build, on main, uses popular_recent with target_count: 1000.
+  mode: "all"
 
   max_year: 2018                      # only used by popular_pre2019
   min_year: 2019                      # only used by popular_recent
@@ -73,8 +81,12 @@ selection:
   tie_breaker: "title"
 
   # DATA 1 minimums. A game needs at least this much information or we skip it.
-  min_genres: 1
-  min_tags: 3
+  # Set to 0 on this branch so nothing is filtered out and we really do get the
+  # whole catalogue. main uses 1 and 3, which is what DATA 1 asks for. With
+  # these at 0 the DATA 1 test skips, because this import did not apply that
+  # gate, and prints the completeness number instead.
+  min_genres: 0
+  min_tags: 0
 
   # Steam's "genres" column includes things that are not games at all
   # (Accounting, Utilities, Audio Production). Listing them here drops those
@@ -281,13 +293,15 @@ category_weights:
 # `python -m pipeline.compare_vectors`, then set `method` to the winner.
 # -----------------------------------------------------------------------------
 vectorization:
-  method: "votes_max"          # chosen 2026-11-02 for map v2 (docs/decisions.md, decision 4); v1 used votes_log_idf
+  method: "hybrid_max"         # map v3 (full catalogue): ties votes_max on pairs at 1k and 90k, best 90k genre overlap (docs/full-90k-findings.md); v2 used votes_max, v1 votes_log_idf
   description_floor: 0.4       # weight of a present tag the description never mentions
-  hybrid_alpha: 0.7            # hybrid_* = alpha * votes_log + (1 - alpha) * description
+  hybrid_alpha: 0.7            # weight on the tag side. hybrid_embed: alpha * votes_log + (1 - alpha) * description; hybrid_max: same with votes_max; hybrid_semantic: alpha * tag cosine + (1 - alpha) * text cosine
   rank_depth: 20               # Steam keeps each game's top 20 tags
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
   embedding_revision: "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"   # pinned Hugging Face commit (REL 2)
   embedding_tag_template: "a video game tagged {tag}"
+  text_field: "description"        # column the description methods embed; the lab export overrides it per run (long_description falls back to description when blank)
+  embedding_device: "cpu"          # published maps are CPU-built (REL 2); "cuda" is for lab runs only
 
 # -----------------------------------------------------------------------------
 # Map layout (pipeline/build_map.py). cluster_count and random_seed are above.

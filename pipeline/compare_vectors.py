@@ -18,14 +18,15 @@ import numpy as np
 import yaml
 
 from backend.app.db import DB_PATH
-from pipeline.config import ARTIFACTS_DIR, REPO_ROOT, alias_lookup, load_config, vectorization_params
+from pipeline.config import ARTIFACTS_DIR, REPO_ROOT, load_config, vectorization_params
 from pipeline.vectorize import (
     EMBEDDING_METHODS,
     FEATURE_METHODS,
     METHODS,
+    TEXT_METHODS,
     TFIDF_METHODS,
     TagCorpus,
-    load_corpus,
+    load_corpus_for,
     neighbor_indices,
     tfidf_relevance,
     vectorize,
@@ -59,11 +60,25 @@ def read_pair_titles(path: Path = PAIRS_PATH) -> list[tuple[str, str]]:
     return [(a, b) for a, b in yaml.safe_load(path.read_text("utf-8"))]
 
 
+def title_rows(corpus: TagCorpus) -> dict[str, int]:
+    """Row of each title; a duplicated title takes the row with the most tag votes, then the lowest game_id."""
+    row_of: dict[str, int] = {}
+    for i, title in enumerate(corpus.titles):
+        # rows ascend by game_id, so a strict > keeps the lowest game_id on a tie
+        if title not in row_of or corpus.votes[i].sum() > corpus.votes[row_of[title]].sum():
+            row_of[title] = i
+    return row_of
+
+
 def resolve_pairs(
     corpus: TagCorpus, titles: list[tuple[str, str]]
 ) -> tuple[list[tuple[int, int]], list[str]]:
-    """Row-index pairs for the titles present, plus the titles that are not."""
-    row_of = {title: i for i, title in enumerate(corpus.titles)}
+    """Row-index pairs for the titles present, plus the titles that are not.
+
+    A duplicated title (store editions, bundles) resolves to the listing with
+    the most tag votes, then the lowest game_id.
+    """
+    row_of = title_rows(corpus)
     pairs, missing = [], []
     for a, b in titles:
         absent = [t for t in (a, b) if t not in row_of]
@@ -113,7 +128,7 @@ def coverage(relevance: np.ndarray, present: np.ndarray) -> float:
 
 
 def probe_rows(corpus: TagCorpus) -> tuple[dict[str, int], list[str]]:
-    row_of = {t: i for i, t in enumerate(corpus.titles)}
+    row_of = title_rows(corpus)
     found = {t: row_of[t] for t in PROBES if t in row_of}
     return found, [t for t in PROBES if t not in row_of]
 
@@ -159,6 +174,7 @@ def build_report(
         f"{len(corpus.titles)} games. Column spaces: {len(corpus.tags)} tags "
         f"(tags.json) for tag methods, {len(corpus.features.names)} curated features "
         f"(features.json) for {', '.join(sorted(FEATURE_METHODS))}. "
+        f"The columns of {', '.join(sorted(TEXT_METHODS))} are embedding dimensions, not tags. "
         f"Methods compared: {', '.join(methods)}.",
         "",
         *[f"- {n}" for n in notes],
@@ -233,7 +249,11 @@ def default_methods() -> tuple[list[str], list[str]]:
         return list(METHODS), ["sentence-transformers is installed: embedding methods included."]
     return (
         [m for m in METHODS if m not in EMBEDDING_METHODS],
-        ["sentence-transformers is NOT installed: desc_embed and hybrid_embed were skipped."],
+        [
+            "sentence-transformers is NOT installed: "
+            + ", ".join(m for m in METHODS if m in EMBEDDING_METHODS)
+            + " were skipped."
+        ],
     )
 
 
@@ -245,7 +265,7 @@ def main(argv: list[str] | None = None) -> None:
     cfg = load_config()
     params = vectorization_params(cfg)
     methods, notes = (args.methods, ["Methods chosen with --methods."]) if args.methods else default_methods()
-    corpus = load_corpus(DB_PATH, alias_lookup(cfg))
+    corpus = load_corpus_for(DB_PATH, cfg)
     matrices = {m: vectorize(corpus, m, params) for m in methods}
     save_vectors(corpus, matrices)
     neighbors = {m: neighbor_indices(v, PAIR_K) for m, v in matrices.items()}

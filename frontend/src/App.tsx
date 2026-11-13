@@ -1,6 +1,6 @@
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import GameInfoPanel from './components/info/GameInfoPanel';
 import GameMap, { type GameMapHandle } from './components/map/GameMap';
 import MapControls from './components/map/MapControls';
@@ -8,15 +8,22 @@ import TopToolbar from './components/toolbar/TopToolbar';
 import FeaturePanelHost from './features/FeaturePanelHost';
 import { featureButtonId, type FeatureId } from './features/features';
 import { matchesGenre } from './features/genreFilter';
+import { useScan } from './features/useScan';
 import { getGameDetails, getMap } from './services/gameService';
 import type { GameDetails, GameSummary, MapData, MapGame } from './services/gameService';
+import type { ThemeMode } from './theme';
 import './app.css';
 
 // .info-panel width plus its margins in app.css. focusGame centres games in
 // the part of the map the panel does not cover.
 const INFO_PANEL_SPACE = 384;
 
-export default function App() {
+interface AppProps {
+  themeMode: ThemeMode;
+  onToggleThemeMode: () => void;
+}
+
+export default function App({ themeMode, onToggleThemeMode }: AppProps) {
   const [map, setMap] = useState<MapData | null>(null);
   const [mapError, setMapError] = useState('');
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -56,7 +63,7 @@ export default function App() {
         if (!ignore) {
           setDetailsError({
             id: selectedGame.id,
-            message: 'This game\'s information could not be loaded. Select the game again to retry.',
+            message: 'This game\'s information could not be loaded. Close this panel and select the game again to retry.',
           });
         }
       });
@@ -68,8 +75,8 @@ export default function App() {
     if (infoPanelOpen) closeButton.current?.focus();
   }, [infoPanelOpen]);
 
-  // Every way of choosing a game (node click, search, similar games, and later
-  // scan) goes through here. A node click leaves the viewport alone.
+  // Every way of choosing a game (node click, search, similar games, scan)
+  // goes through here. A node click leaves the viewport alone.
   const selectGame = useCallback((game: MapGame) => {
     setSelectedGame(game);
   }, []);
@@ -79,12 +86,27 @@ export default function App() {
     mapRef.current?.focusGame(game.id, INFO_PANEL_SPACE);
   }
 
+  // SC 1: scan picks go through selectAndLocate. Choosing a game yourself,
+  // closing the info panel or closing the Scan panel stops the scan.
+  const scan = useScan(map?.games ?? null, selectedGenre || null, selectAndLocate);
+
+  function chooseGame(game: MapGame) {
+    scan.stop();
+    selectGame(game);
+  }
+
+  function chooseAndLocate(game: MapGame) {
+    scan.stop();
+    selectAndLocate(game);
+  }
+
   function selectSimilar(summary: GameSummary) {
     const game = map?.games.find((record) => record.id === summary.id);
-    if (game) selectAndLocate(game);
+    if (game) chooseAndLocate(game);
   }
 
   function closeInfoPanel() {
+    scan.stop();
     setSelectedGame(null);
     setDetails(null);
     setDetailsError(null);
@@ -92,10 +114,12 @@ export default function App() {
   }
 
   function toggleFeature(id: FeatureId) {
+    if (activeFeature === 'scan') scan.stop();
     setActiveFeature((current) => (current === id ? null : id));
   }
 
   function closeFeature() {
+    if (activeFeature === 'scan') scan.stop();
     if (activeFeature) document.getElementById(featureButtonId(activeFeature))?.focus();
     setActiveFeature(null);
   }
@@ -106,7 +130,14 @@ export default function App() {
   }
 
   const games = map?.games ?? null;
-  const matchingCount = games?.filter((game) => matchesGenre(game, selectedGenre)).length ?? 0;
+  const matchingCount = useMemo(
+    () => games?.filter((game) => matchesGenre(game, selectedGenre)).length ?? 0,
+    [games, selectedGenre],
+  );
+  const genres = useMemo(
+    () => [...new Set((map?.games ?? []).flatMap((game) => game.genres))].sort(),
+    [map],
+  );
   const visibleDetails = selectedGame && details?.id === selectedGame.id ? details : null;
   const visibleError = selectedGame && detailsError?.id === selectedGame.id ? detailsError.message : '';
 
@@ -116,7 +147,9 @@ export default function App() {
         games={games}
         activeFeature={activeFeature}
         onToggleFeature={toggleFeature}
-        onSearchSelect={selectAndLocate}
+        onSearchSelect={chooseAndLocate}
+        themeMode={themeMode}
+        onToggleThemeMode={onToggleThemeMode}
       />
 
       <main
@@ -130,8 +163,12 @@ export default function App() {
             ref={mapRef}
             games={games}
             selectedId={selectedGame?.id ?? null}
+            similarGames={visibleDetails?.similarGames}
+            obscuredRight={infoPanelOpen ? INFO_PANEL_SPACE : 0}
             selectedGenre={selectedGenre}
-            onSelectGame={selectGame}
+            onSelectGame={chooseGame}
+            onClickBackground={closeInfoPanel}
+            themeMode={themeMode}
           />
         )}
 
@@ -172,8 +209,10 @@ export default function App() {
           <FeaturePanelHost
             feature={activeFeature}
             games={games ?? []}
+            genres={genres}
             selectedGenre={selectedGenre}
             onGenreChange={setSelectedGenre}
+            scan={scan}
             onClose={closeFeature}
           />
         )}

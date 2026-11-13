@@ -1,9 +1,12 @@
 import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import {
   featureButtonId, HELP_FEATURE, TOOLBAR_FEATURES, type FeatureEntry, type FeatureId,
 } from '../../features/features';
 import type { MapGame } from '../../services/gameService';
+import type { ThemeMode } from '../../theme';
+import { MoonIcon, SunIcon } from '../icons';
 import SearchBox from './SearchBox';
 
 interface TopToolbarProps {
@@ -11,9 +14,14 @@ interface TopToolbarProps {
   activeFeature: FeatureId | null;
   onToggleFeature: (id: FeatureId) => void;
   onSearchSelect: (game: MapGame) => void;
+  themeMode: ThemeMode;
+  onToggleThemeMode: () => void;
 }
 
-export default function TopToolbar({ games, activeFeature, onToggleFeature, onSearchSelect }: TopToolbarProps) {
+export default function TopToolbar({
+  games, activeFeature, onToggleFeature, onSearchSelect, themeMode, onToggleThemeMode,
+}: TopToolbarProps) {
+  const dark = themeMode === 'dark';
   function renderButton({ id, label, Icon }: FeatureEntry) {
     const active = activeFeature === id;
     return (
@@ -45,6 +53,17 @@ export default function TopToolbar({ games, activeFeature, onToggleFeature, onSe
       </nav>
       <div className="toolbar-right">
         <SearchBox games={games} onSelectGame={onSearchSelect} />
+        <Tooltip title={dark ? 'Light mode' : 'Dark mode'}>
+          <IconButton
+            className="theme-toggle"
+            size="small"
+            aria-label="Dark mode"
+            aria-pressed={dark}
+            onClick={onToggleThemeMode}
+          >
+            {dark ? <SunIcon fontSize="small" /> : <MoonIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
         {renderButton(HELP_FEATURE)}
       </div>
     </header>

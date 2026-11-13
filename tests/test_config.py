@@ -69,6 +69,8 @@ def _with_vectorization(**changes):
         {"embedding_model": ""},
         {"embedding_revision": ""},
         {"embedding_tag_template": "a video game"},
+        {"text_field": "title"},
+        {"embedding_device": "mps"},
     ],
 )
 def test_bad_vectorization_values_are_rejected(changes):
@@ -126,6 +128,10 @@ def test_layout_needs_a_colour_for_every_cluster():
         {"kmeans_n_init": 0},
         {"kmeans_n_init": None},
         {"kmeans_n_init": True},
+        {"max_map_games": None},
+        {"max_map_games": 0},
+        {"max_map_games": True},
+        {"max_map_games": 1.5},
         {"random_seed": None},
         {"random_seed": True},
         {"random_seed": "42"},
