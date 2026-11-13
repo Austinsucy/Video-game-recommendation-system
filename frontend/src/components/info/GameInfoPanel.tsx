@@ -2,6 +2,7 @@ import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import LinearProgress from '@mui/material/LinearProgress';
 import Link from '@mui/material/Link';
+import Skeleton from '@mui/material/Skeleton';
 import { useState, type ReactNode, type Ref } from 'react';
 import type { GameDetails, GameSummary, MapGame } from '../../services/gameService';
 import { CloseIcon } from '../icons';
@@ -39,17 +40,32 @@ function ChipList({ items }: { items: string[] }) {
   );
 }
 
-function Cover({ url, title }: { url: string | null; title: string }) {
+function Cover({ url, title, loading }: { url: string | null; title: string; loading: boolean }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  if (!url || failedUrl === url) {
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+  if (!loading && (!url || failedUrl === url)) {
     return <div className="cover cover-placeholder">Cover image unavailable</div>;
   }
-  return <img className="cover" src={url} alt={`${title} cover`} onError={() => setFailedUrl(url)} />;
+  return (
+    <div className="cover cover-frame">
+      {(loading || loadedUrl !== url) && <Skeleton variant="rounded" className="cover" height="auto" />}
+      {url && (
+        <img
+          className={`cover${loadedUrl === url ? ' is-loaded' : ''}`}
+          src={url}
+          alt={`${title} cover`}
+          onLoad={() => setLoadedUrl(url)}
+          onError={() => setFailedUrl(url)}
+        />
+      )}
+    </div>
+  );
 }
 
-/** GIP 1 game information panel. Fields the data does not have yet show "Unavailable". */
+/** GIP 1 game information panel. Fields show placeholders while loading, then "Unavailable" if the data lacks them. */
 export default function GameInfoPanel({ game, details, error, onClose, onSelectSimilar, closeButtonRef }: GameInfoPanelProps) {
   const loading = !details && !error;
+  const missing = loading ? <Skeleton variant="text" width={96} /> : <Unavailable />;
   return (
     <aside
       className="floating-panel info-panel"
@@ -78,19 +94,19 @@ export default function GameInfoPanel({ game, details, error, onClose, onSelectS
 
       <div className="panel-body">
         {error && <p className="panel-error" role="alert">{error}</p>}
-        <Cover url={details?.coverUrl ?? null} title={game.title} />
+        <Cover url={details?.coverUrl ?? null} title={game.title} loading={loading} />
 
         <dl className="info-fields">
           <Field label="Genres"><ChipList items={game.genres} /></Field>
-          <Field label="Release year">{details?.releaseYear ?? <Unavailable />}</Field>
-          <Field label="Platforms">{details?.platforms.length ? details.platforms.join(', ') : <Unavailable />}</Field>
+          <Field label="Release year">{details?.releaseYear ?? missing}</Field>
+          <Field label="Platforms">{details?.platforms.length ? details.platforms.join(', ') : missing}</Field>
           <Field label="Rating">
             {details?.rating != null
               ? `${details.rating}${details.ratingMax != null ? ` / ${details.ratingMax}` : ''}`
-              : <Unavailable />}
+              : missing}
           </Field>
           <Field label="Average playtime">
-            {details?.averagePlaytimeHours != null ? `${details.averagePlaytimeHours} hours` : <Unavailable />}
+            {details?.averagePlaytimeHours != null ? `${details.averagePlaytimeHours} hours` : missing}
           </Field>
           <Field label="Steam reviews">
             {game.popularity != null ? game.popularity.toLocaleString() : <Unavailable />}
@@ -98,18 +114,18 @@ export default function GameInfoPanel({ game, details, error, onClose, onSelectS
           <Field label="Store page">
             {details?.storeUrl
               ? <Link href={details.storeUrl} target="_blank" rel="noopener noreferrer">Open store page</Link>
-              : <Unavailable />}
+              : missing}
           </Field>
         </dl>
 
         <section className="info-section" aria-labelledby="info-description">
           <h3 id="info-description">Description</h3>
-          {details?.description ? <p>{details.description}</p> : <p><Unavailable /></p>}
+          <p>{details?.description ?? (loading ? <Skeleton variant="text" /> : <Unavailable />)}</p>
         </section>
 
         <section className="info-section" aria-labelledby="info-tags">
           <h3 id="info-tags">Important tags</h3>
-          <ChipList items={details?.tags ?? []} />
+          {details ? <ChipList items={details.tags} /> : missing}
         </section>
 
         <section className="info-section" aria-labelledby="info-similar">
@@ -122,7 +138,7 @@ export default function GameInfoPanel({ game, details, error, onClose, onSelectS
                 </li>
               ))}
             </ol>
-          ) : <p><Unavailable /></p>}
+          ) : <p>{missing}</p>}
         </section>
       </div>
     </aside>

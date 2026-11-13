@@ -297,6 +297,11 @@
   object-fit: cover;
   border-radius: 6px;
 }
+.cover-frame { position: relative; }
+.cover-frame img { opacity: 0; transition: opacity 150ms ease-out; }
+.cover-frame img.is-loaded { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .cover-frame img { transition: none; } }
+.cover-frame .MuiSkeleton-root { position: absolute; inset: 0; }
 .cover-placeholder {
   display: grid;
   place-items: center;
