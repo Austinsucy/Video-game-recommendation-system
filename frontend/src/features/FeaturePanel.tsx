@@ -3,7 +3,7 @@ import IconButton from '@mui/material/IconButton';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { CloseIcon } from '../components/icons';
 
-export type FeatureStatus = 'planned' | 'partial';
+export type FeatureStatus = 'planned' | 'partial' | 'available';
 
 interface FeaturePanelProps {
   title: string;
@@ -18,6 +18,7 @@ interface FeaturePanelProps {
 const STATUS_LABEL: Record<FeatureStatus, string> = {
   planned: 'Not available yet',
   partial: 'Partly available',
+  available: 'Available',
 };
 
 /** Shared frame for the toolbar feature panels. */

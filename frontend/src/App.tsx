@@ -1,12 +1,13 @@
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import GameInfoPanel from './components/info/GameInfoPanel';
 import GameMap, { type GameMapHandle } from './components/map/GameMap';
 import MapControls from './components/map/MapControls';
 import TopToolbar from './components/toolbar/TopToolbar';
 import FeaturePanelHost from './features/FeaturePanelHost';
 import { featureButtonId, type FeatureId } from './features/features';
+import { matchesGenre } from './features/genreFilter';
 import { getGameDetails, getMap } from './services/gameService';
 import type { GameDetails, GameSummary, MapData, MapGame } from './services/gameService';
 import type { ThemeMode } from './theme';
@@ -29,6 +30,7 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
   const [details, setDetails] = useState<GameDetails | null>(null);
   const [detailsError, setDetailsError] = useState<{ id: number; message: string } | null>(null);
   const [activeFeature, setActiveFeature] = useState<FeatureId | null>(null);
+  const [selectedGenre, setSelectedGenre] = useState('');
   const mapRef = useRef<GameMapHandle>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const infoPanelOpen = selectedGame !== null;
@@ -110,6 +112,10 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
   }
 
   const games = map?.games ?? null;
+  const matchingCount = useMemo(
+    () => games?.filter((game) => matchesGenre(game, selectedGenre)).length ?? 0,
+    [games, selectedGenre],
+  );
   const visibleDetails = selectedGame && details?.id === selectedGame.id ? details : null;
   const visibleError = selectedGame && detailsError?.id === selectedGame.id ? detailsError.message : '';
 
@@ -137,6 +143,7 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
             selectedId={selectedGame?.id ?? null}
             similarGames={visibleDetails?.similarGames}
             obscuredRight={infoPanelOpen ? INFO_PANEL_SPACE : 0}
+            selectedGenre={selectedGenre}
             onSelectGame={selectGame}
             onClickBackground={closeInfoPanel}
             themeMode={themeMode}
@@ -161,8 +168,11 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
 
         {map && games && games.length > 0 && (
           <>
-            <p id="map-instructions" className="map-status">
-              {games.length.toLocaleString()} games · map {map.version}
+            <p id="map-instructions" className="map-status" aria-live="polite">
+              {selectedGenre
+                ? `${matchingCount.toLocaleString()} of ${games.length.toLocaleString()} games · ${selectedGenre}`
+                : `${games.length.toLocaleString()} games`}
+              {' · '}map {map.version}
               <span className="map-hint"> · Drag to pan, scroll to zoom, click a dot for details</span>
             </p>
             <MapControls
@@ -174,7 +184,13 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
         )}
 
         {activeFeature && (
-          <FeaturePanelHost feature={activeFeature} games={games ?? []} onClose={closeFeature} />
+          <FeaturePanelHost
+            feature={activeFeature}
+            games={games ?? []}
+            selectedGenre={selectedGenre}
+            onGenreChange={setSelectedGenre}
+            onClose={closeFeature}
+          />
         )}
 
         {selectedGame && (

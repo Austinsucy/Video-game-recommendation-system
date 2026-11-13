@@ -1,4 +1,5 @@
 import { useEffect, useImperativeHandle, useRef, type Ref } from 'react';
+import { matchesGenre } from '../../features/genreFilter';
 import type { GameSummary, MapGame } from '../../services/gameService';
 import type { ThemeMode } from '../../theme';
 import { createDotLayer, drawDots2d, type DotData, type DotView } from './dotLayer';
@@ -39,6 +40,8 @@ interface GameMapProps {
   onSelectGame: (game: MapGame) => void;
   /** A click on empty map, as opposed to a drag. */
   onClickBackground: () => void;
+  /** Games outside this genre are faded and lose their labels; '' shows all (GV 1). */
+  selectedGenre: string;
   /** Redraws the labels and highlights in the new theme's colours. */
   themeMode: ThemeMode;
   ref?: Ref<GameMapHandle>;
@@ -67,6 +70,7 @@ const HIT_SLOP = 2; // px around a dot that still counts as on it
 const MIN_HIT_RADIUS = 4;
 const LABELS_OVERVIEW = 25; // most reviewed games labelled at the fitted zoom
 const LABELS_ZOOMED = 40;
+const GENRE_FADE = 0.12; // opacity multiplier for games outside the chosen genre
 const STATUS_LINE_HEIGHT = 36; // keep labels clear of the .map-status line
 
 const FONT_FAMILY = '"Inter", "Segoe UI", system-ui, sans-serif';
@@ -110,6 +114,7 @@ interface MapController {
   fit(): void;
   focusGame(id: number, obscuredRight: number): void;
   setWeb(selectedId: number | null, similarGames: GameSummary[] | undefined, obscuredRight: number): void;
+  setGenre(genre: string): void;
   render(): void;
 }
 
@@ -135,7 +140,7 @@ function hexToRgb(hex: string): [number, number, number] {
   return [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255];
 }
 
-export default function GameMap({ games, selectedId, similarGames, obscuredRight, onSelectGame, onClickBackground, themeMode, ref }: GameMapProps) {
+export default function GameMap({ games, selectedId, similarGames, obscuredRight, selectedGenre, onSelectGame, onClickBackground, themeMode, ref }: GameMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const dotCanvasRef = useRef<HTMLCanvasElement>(null);
   const labelCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -168,6 +173,7 @@ export default function GameMap({ games, selectedId, similarGames, obscuredRight
       ys: new Float32Array(n),
       scales: new Float32Array(n),
       colors: new Float32Array(n * 3),
+      fades: new Float32Array(n).fill(1),
     };
     const popularity = new Float32Array(n);
     const hexColors: string[] = [];
@@ -434,7 +440,7 @@ export default function GameMap({ games, selectedId, similarGames, obscuredRight
       const limit = view.zoom > fitZoom * 1.05 ? LABELS_ZOOMED : LABELS_OVERVIEW;
       let taken = 0;
       for (let d = n - 1; d >= 0 && taken < limit; d--) {
-        if (d === selected || d === hovered) continue;
+        if (d === selected || d === hovered || data.fades[d] < 1) continue;
         const x = data.xs[d] * zoom + panX;
         const y = data.ys[d] * zoom + panY;
         if (x < 0 || y < 0 || x > width || y > labelBottom) continue;
@@ -725,6 +731,11 @@ export default function GameMap({ games, selectedId, similarGames, obscuredRight
           easeInOut,
         );
       },
+      setGenre(genre) {
+        for (let d = 0; d < n; d++) data.fades[d] = matchesGenre(gameAt(d), genre) ? 1 : GENRE_FADE;
+        dots?.updateFades();
+        render();
+      },
       render,
     };
 
@@ -752,6 +763,10 @@ export default function GameMap({ games, selectedId, similarGames, obscuredRight
     controllerRef.current?.setWeb(selectedId, similarGames, obscuredRight);
     controllerRef.current?.render();
   }, [games, selectedId, similarGames, obscuredRight]);
+
+  useEffect(() => {
+    controllerRef.current?.setGenre(selectedGenre);
+  }, [games, selectedGenre]);
 
   // main.tsx switches the CSS variables before React re-renders, so they are current here.
   useEffect(() => {

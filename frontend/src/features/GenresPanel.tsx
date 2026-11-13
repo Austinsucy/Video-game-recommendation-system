@@ -1,26 +1,42 @@
 import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
 import TextField from '@mui/material/TextField';
-import FeaturePanel, { PlannedControls } from './FeaturePanel';
+import FeaturePanel from './FeaturePanel';
 
-export default function GenresPanel({ genres, onClose }: { genres: string[]; onClose: () => void }) {
+interface GenresPanelProps {
+  genres: string[];
+  selectedGenre: string;
+  onGenreChange: (genre: string) => void;
+  onClose: () => void;
+}
+
+export default function GenresPanel({ genres, selectedGenre, onGenreChange, onClose }: GenresPanelProps) {
   return (
     <FeaturePanel
       title="Genres"
       requirement="GV 1"
-      status="planned"
-      summary="Choose one genre to fade out the other games. Games keep their positions on the map."
+      status="available"
+      summary="Choose one genre to fade the other games. Games keep their positions on the map."
       onClose={onClose}
     >
-      <PlannedControls note={`The genre list is real (${genres.length} genres in this map version), but filtering does nothing yet.`}>
-        <TextField select size="small" fullWidth disabled label="Genre" value="">
-          <MenuItem value="">All genres</MenuItem>
-          {genres.map((genre) => <MenuItem key={genre} value={genre}>{genre}</MenuItem>)}
-        </TextField>
-        <div className="panel-actions">
-          <Button size="small" disabled>Clear filter</Button>
-        </div>
-      </PlannedControls>
+      <TextField
+        id="genre-filter"
+        select
+        size="small"
+        fullWidth
+        label="Genre"
+        value={selectedGenre}
+        onChange={(event) => onGenreChange(event.target.value)}
+        helperText={selectedGenre ? `${selectedGenre} games are highlighted.` : 'All games are highlighted.'}
+      >
+        <MenuItem value="">All genres</MenuItem>
+        {genres.map((genre) => <MenuItem key={genre} value={genre}>{genre}</MenuItem>)}
+      </TextField>
+      <div className="panel-actions">
+        <Button size="small" disabled={selectedGenre === ''} onClick={() => onGenreChange('')}>
+          Clear filter
+        </Button>
+      </div>
     </FeaturePanel>
   );
 }
