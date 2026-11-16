@@ -200,8 +200,23 @@ def test_configured_method_is_a_known_method():
     assert load_config()["vectorization"]["method"] in METHODS
 
 
+# load_corpus builds dense games x tags matrices. Past this many games that
+# takes several GB per method, so the test would run out of memory instead of
+# telling us anything. The Steam + IGDB build has about 252,000 games.
+SMOKE_TEST_MAX_GAMES = 120_000
+
+
+def _game_count() -> int:
+    import sqlite3
+    with sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True) as conn:
+        return conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+
+
 @pytest.mark.skipif(not DB_PATH.exists(), reason="run `python -m pipeline.ingest` first")
 def test_real_database_smoke():
+    if _game_count() > SMOKE_TEST_MAX_GAMES:
+        pytest.skip(f"database has more than {SMOKE_TEST_MAX_GAMES:,} games; the dense "
+                    "smoke test would run out of memory (t-SNE memory is a hand-off to Kayne)")
     corpus = load_corpus(DB_PATH, alias_lookup(load_config()))
     n_games, n_tags = corpus.votes.shape
     assert n_games > 0 and n_tags > 0

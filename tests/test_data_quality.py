@@ -145,8 +145,10 @@ def test_no_game_appears_twice(session):
     editions). Our scrum doc says those get reported for review, not merged,
     so the duplicate check here is on identity rather than name.
     """
-    external_ids = session.scalars(select(GameSource.external_id)).all()
-    assert len(external_ids) == len(set(external_ids))
+    # Per source: an IGDB id and a Steam app id can be the same number and
+    # still be two different things, so the pair is what must be unique.
+    pairs = session.execute(select(GameSource.source_name, GameSource.external_id)).all()
+    assert len(pairs) == len(set(pairs))
 
     game_ids = session.scalars(select(Game.game_id)).all()
     assert len(game_ids) == len(set(game_ids))
@@ -246,11 +248,17 @@ def test_raw_tags_are_valid_json_with_vote_counts(session):
 # The long description
 # ---------------------------------------------------------------------------
 
+# test/steam-plus-igdb: the checks below are about STEAM's columns, so they
+# look at Steam games only. IGDB has one summary instead of two descriptions
+# and often no developer; data/merge_report.md reports its numbers per source.
+STEAM_ONLY = Game.primary_source == "steam"
+
+
 def test_long_description_is_present_for_almost_every_game(session):
     """It is allowed to be NULL, but it should be rare."""
-    total = session.scalar(select(func.count(Game.game_id)))
+    total = session.scalar(select(func.count(Game.game_id)).where(STEAM_ONLY))
     missing = session.scalar(
-        select(func.count()).select_from(Game).where(Game.long_description.is_(None))
+        select(func.count()).select_from(Game).where(Game.long_description.is_(None), STEAM_ONLY)
     )
     assert missing / total < 0.05
 
@@ -263,7 +271,7 @@ def test_long_description_is_longer_than_the_short_one(session):
     """
     short_avg, long_avg = session.execute(
         select(func.avg(func.length(Game.description)),
-               func.avg(func.length(Game.long_description)))
+               func.avg(func.length(Game.long_description))).where(STEAM_ONLY)
     ).one()
     assert long_avg > short_avg * 2
 
@@ -307,9 +315,9 @@ def test_release_year_matches_release_date(session):
 
 def test_most_games_have_a_developer(session):
     """Allowed to be missing, but it should be the exception."""
-    total = session.scalar(select(func.count(Game.game_id)))
+    total = session.scalar(select(func.count(Game.game_id)).where(STEAM_ONLY))
     missing = session.scalar(
-        select(func.count()).select_from(Game).where(Game.developers.is_(None))
+        select(func.count()).select_from(Game).where(Game.developers.is_(None), STEAM_ONLY)
     )
     assert missing / total < 0.10
 

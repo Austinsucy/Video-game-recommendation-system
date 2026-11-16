@@ -186,6 +186,15 @@ def test_clusters_separate_groups_that_the_2d_layout_merges():
 @pytest.mark.skipif(not DB_PATH.exists(), reason="run `python -m pipeline.ingest` first")
 def test_real_database_dry_build_validates():
     cfg = load_config()
+    # test/steam-plus-igdb: with about 252,000 games, load_corpus alone needs
+    # over 10 GB (dense games x features matrices), so count the games first
+    # and skip before loading, instead of running out of memory.
+    import sqlite3
+    with sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True) as conn:
+        total = conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+    if total > publish.MAX_GAMES * 100:
+        pytest.skip(f"{total:,} games: loading the corpus would run out of memory "
+                    "(t-SNE memory at this size is a hand-off to Kayne)")
     corpus = load_corpus(DB_PATH, alias_lookup(load_config()))
     # test/full-90k-database only: a full-catalogue build embeds ~90,000
     # descriptions and runs t-SNE on ~73,000 games, which takes minutes. Run it
