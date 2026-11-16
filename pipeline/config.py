@@ -45,7 +45,17 @@ KNOWN_TRANSFORMS = {
     "minutes_to_hours",
     "json_dump",
     "store_url_template",
+    # added for the IGDB merge (pipeline/cleaning.py)
+    "clean_display_title",
+    "clean_html_text",
+    "short_summary",
+    "clean_summary",
+    "first_list_item",
+    "number",
 }
+
+# Values allowed in sources.igdb.matching overrides (config/match_overrides.yaml).
+OVERRIDE_VERDICTS = ("same", "different")
 
 
 class _StrictLoader(yaml.SafeLoader):
@@ -131,6 +141,60 @@ def validate_config(cfg: dict) -> None:
 
     _validate_vectorization(cfg["vectorization"])
     _validate_layout(cfg["layout"], cluster_count)
+
+    # The IGDB merge sections are optional, so an older config (or a small
+    # test config) without them still loads. When they are there, check them.
+    if "sources" in cfg:
+        validate_sources(cfg, known)
+    for pattern in cfg.get("non_game_patterns") or []:
+        try:
+            re.compile(pattern, re.IGNORECASE)
+        except re.error as error:
+            raise ConfigError(f"non_game_patterns has a broken pattern {pattern!r}: {error}")
+
+
+def validate_sources(cfg: dict, known_features: set) -> None:
+    """Check the `sources` section that describes the second dataset (IGDB)."""
+    sources = cfg["sources"]
+    if not isinstance(sources, dict) or "steam" not in sources:
+        raise ConfigError("sources must be a mapping with at least a `steam` entry")
+    igdb = sources.get("igdb")
+    if not igdb:
+        return
+    for key in ("csv_path", "source_name", "column_sources", "feature_sources",
+                "pc_platforms", "platform_families", "matching", "rating_kind",
+                "rating_scale", "upcoming_after"):
+        if key not in igdb:
+            raise ConfigError(f"sources.igdb is missing {key}")
+    if igdb["source_name"] == cfg["dataset"]["source_name"]:
+        raise ConfigError("sources.igdb.source_name must differ from the Steam source_name")
+    for column, spec in igdb["column_sources"].items():
+        if not isinstance(spec, dict) or not isinstance(spec.get("from"), str):
+            raise ConfigError(f"sources.igdb.column_sources.{column} needs a 'from:' line")
+        transform = spec.get("transform")
+        if transform is not None and transform not in KNOWN_TRANSFORMS:
+            raise ConfigError(
+                f"sources.igdb.column_sources.{column} asks for unknown transform {transform!r}"
+            )
+    # Every platform family must be a real platform feature, and no IGDB
+    # platform may sit in two families (that would be a silent double count).
+    seen: dict[str, str] = {}
+    for family, names in igdb["platform_families"].items():
+        if ("platform", family) not in known_features:
+            raise ConfigError(f"platform family {family!r} is not in vocabulary.platform")
+        for name in names:
+            if name in seen:
+                raise ConfigError(f"IGDB platform {name!r} is in both {seen[name]} and {family}")
+            seen[name] = family
+    matching = igdb["matching"]
+    low, high = matching.get("separate_below"), matching.get("merge_at_or_above")
+    if not (_is_number(low) and _is_number(high) and 0 <= low < high <= 1):
+        raise ConfigError("matching needs 0 <= separate_below < merge_at_or_above <= 1")
+    derived = igdb.get("derived_text") or {}
+    for pair in derived.get("contradictions") or []:
+        for side in pair:
+            if tuple(side) not in known_features:
+                raise ConfigError(f"derived_text contradiction {side} is not in the vocabulary")
 
 
 def validate_category_weights(weights) -> None:

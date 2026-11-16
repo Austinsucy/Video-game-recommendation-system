@@ -1,0 +1,19 @@
+# =============================================================================
+# MATCH OVERRIDES - a person's final word on an IGDB / Steam pair
+#
+# The importer decides on its own whether an IGDB game is a Steam game we
+# already have. When it gets one wrong, or when data/match_review.csv lists a
+# pair it could not decide, put the answer here. These are applied LAST, on
+# every import, so they always win over the rules.
+#
+#   igdb_id      the IGDB id (column igdb_id in data/match_review.csv)
+#   steam_appid  the Steam app id (column steam_appid)
+#   verdict      same       -> merge them into the Steam game
+#                different  -> keep them as two games
+#   note         optional, why (so the next person does not undo it)
+#
+# Example:
+#   overrides:
+#     - {igdb_id: 1234, steam_appid: 5678, verdict: same, note: "PC port, renamed"}
+# =============================================================================
+overrides: []

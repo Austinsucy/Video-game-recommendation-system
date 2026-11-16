@@ -114,6 +114,62 @@ class Game(Base):
     # yes or no, so without this column the counts are thrown away forever.
     raw_tags_json: Mapped[str | None]
 
+    # ----- added for the Steam + IGDB merge (test/steam-plus-igdb) -----
+    #
+    # Once games come from two datasets, a number on its own is not enough. A
+    # Steam "85" is the percent of positive reviews, an IGDB "85" is IGDB's
+    # user score. These columns say which one a game has, so the website can
+    # label it properly instead of guessing.
+
+    # 'steam_positive_pct' or 'igdb_user_score'. NULL when there is no rating.
+    rating_kind: Mapped[str | None]
+
+    # What the popularity number means, e.g. 'steam_review_count'. IGDB has no
+    # popularity counts, so IGDB-only games have NULL in both columns.
+    popularity_source: Mapped[str | None]
+
+    # A WIDE image for banners. Steam's header image is already wide, but
+    # IGDB's cover is a tall box-art picture, so for IGDB we use the first
+    # screenshot here and keep the cover in cover_image_url.
+    header_image_url: Mapped[str | None]
+
+    # Every platform the sources list, as JSON text like ["Windows", "Mac"].
+    # The cleaned-up platform families live in game_features; this is the
+    # untouched list, kept so nothing is lost.
+    platforms_raw: Mapped[str | None]
+
+    # 1 if the config's adult markers matched (Steam "Sexual Content" tag,
+    # IGDB "Erotic" theme and so on). For a future safe-mode switch.
+    is_adult: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+
+    # 'steam' or 'igdb': which dataset this game's main values came from.
+    # A merged game is 'steam' because Steam's values always win.
+    primary_source: Mapped[str] = mapped_column(nullable=False, default="steam", server_default=text("'steam'"))
+
+    # 1 for things that are not really games (soundtracks, demos, playtests,
+    # dedicated servers). They stay in the database but should stay off the
+    # map. The patterns are in map_config.yaml under non_game_patterns.
+    is_non_game: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+
+    # 1 when the release date is after the date we checked the data, so the
+    # game is not out yet. See sources.igdb.upcoming_after in the config.
+    is_upcoming: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+
+    # Where this game's tags came from:
+    #   steam_votes  Steam tags with vote counts (raw_tags_json)
+    #   igdb         IGDB lists only, which say yes/no but have no votes
+    #   none         no tags from anywhere
+    tag_source: Mapped[str] = mapped_column(nullable=False, default="none", server_default=text("'none'"))
+
+    # What kind of tags raw_tags_json / raw_igdb_json hold, so the vectorizer
+    # can tell them apart: 'votes' (Steam) or 'presence' (IGDB). NULL = no tags.
+    raw_tags_kind: Mapped[str | None]
+
+    # The untouched IGDB lists (genres, themes, keywords, ...) as JSON, the
+    # same idea as raw_tags_json. We NEVER put IGDB data into raw_tags_json,
+    # because that column means "tag -> votes" and IGDB has no votes.
+    raw_igdb_json: Mapped[str | None]
+
     # These two let us write `game.sources` and `game.features` in Python
     # instead of writing a JOIN by hand every time.
     sources: Mapped[list["GameSource"]] = relationship(
@@ -128,6 +184,18 @@ class Game(Base):
         # SQLite reads all 1,000 rows every time. With one, it jumps straight
         # to the matches.
         Index("ix_games_title_search", "title_search"),
+        CheckConstraint(
+            "rating_kind IN ('steam_positive_pct', 'igdb_user_score')",
+            name="ck_games_rating_kind",
+        ),
+        CheckConstraint("primary_source IN ('steam', 'igdb')", name="ck_games_primary_source"),
+        CheckConstraint(
+            "tag_source IN ('steam_votes', 'igdb', 'none')", name="ck_games_tag_source"
+        ),
+        CheckConstraint("raw_tags_kind IN ('votes', 'presence')", name="ck_games_raw_tags_kind"),
+        CheckConstraint("is_adult IN (0, 1)", name="ck_games_is_adult_bool"),
+        CheckConstraint("is_non_game IN (0, 1)", name="ck_games_is_non_game_bool"),
+        CheckConstraint("is_upcoming IN (0, 1)", name="ck_games_is_upcoming_bool"),
     )
 
 
@@ -156,8 +224,29 @@ class GameSource(Base):
     # When the snapshot was taken, as an ISO date string like "2025-03-01".
     retrieved_at: Mapped[str | None]
 
+    # ----- added for the Steam + IGDB merge -----
+    # The title and date exactly as THIS source wrote them, before cleaning.
+    # games.title loses things like the trademark sign; this keeps the original.
+    title_in_source: Mapped[str | None]
+    release_date_in_source: Mapped[str | None]
+
+    # How this row got attached to its game, so every merge can be explained:
+    #   steam_primary   the Steam app the game was built from
+    #   steam_fold      an extra Steam app for the same game (duplicate app)
+    #   igdb_new        an IGDB game we did not have, added as a new game
+    #   anything else   the matching rule that merged it, e.g. strict+same_year
+    match_method: Mapped[str | None]
+
+    # Description similarity (0 to 1) between the two sources when we compared
+    # them. NULL when there was nothing to compare.
+    match_score: Mapped[float | None]
+
     game: Mapped["Game"] = relationship(back_populates="sources")
 
+    # One game can have SEVERAL steam rows here: Steam sometimes sells the same
+    # game under more than one app id (EA SPORTS FC 25 has four). We fold those
+    # into one game and keep every app id, so a Steam library lookup by any of
+    # them still finds it.
     __table_args__ = (Index("ix_game_sources_game_id", "game_id"),)
 
 
@@ -218,8 +307,11 @@ class Feature(Base):
 class GameFeature(Base):
     """A plain link table. One row means "this game has this feature".
 
-    A game with 4 genres and 20 tags has 24 rows here. There is no extra
-    information on the row, just the pairing.
+    A game with 4 genres and 20 tags has 24 rows here.
+
+    `source` says which dataset gave us the pairing: 'steam', 'igdb', or
+    'derived_text' (an optional step that reads descriptions, off by default).
+    When both datasets agree on a feature we write one row marked 'steam'.
     """
 
     __tablename__ = "game_features"
@@ -230,8 +322,12 @@ class GameFeature(Base):
     feature_id: Mapped[int] = mapped_column(
         ForeignKey("features.feature_id"), primary_key=True
     )
+    source: Mapped[str] = mapped_column(nullable=False, default="steam", server_default=text("'steam'"))
 
     __table_args__ = (
+        CheckConstraint(
+            "source IN ('steam', 'igdb', 'derived_text')", name="ck_game_features_source"
+        ),
         # Required by our import rules. This one makes the backwards question
         # fast: "which games have feature 57?" Without it, filtering the map
         # by genre would scan every row.

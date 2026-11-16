@@ -12,6 +12,8 @@
 #   4. weights      how much each feature category counts for the ML
 #   5. vocabulary   the official list of features
 #   6. aliases      raw text from Steam -> one of those features
+#   7. sources      the second dataset (IGDB) and how it merges with Steam
+#   8. non_game_patterns  names that mean "not a game" (soundtracks, demos)
 #   plus vectorization and layout, which Kayne's map pipeline reads
 #
 # One thing to know: publish_map() copies this whole file into
@@ -147,6 +149,13 @@ selection:
 #   minutes_to_hours      divide by 60, round to 2 dp
 #   json_dump             store the value as JSON text
 #   clean_text            trim whitespace, turn empty strings into NULL
+#   clean_display_title   clean_text, plus remove TM R C SM signs and double spaces
+#   clean_html_text       clean_text, plus turn &amp; into & and drop <tags>
+#   (IGDB only, see sources.igdb)
+#   short_summary         the summary cut at a sentence end near 350 characters
+#   clean_summary         clean_html_text, but NULL when under 15 characters
+#   first_list_item       the first entry of a list column (first screenshot)
+#   number                a plain number, NULL when it cannot be read
 # -----------------------------------------------------------------------------
 fields:
   # Not read from the CSV. This is the label we store in games.rating_scale to
@@ -154,12 +163,21 @@ fields:
   # out of 100 or out of 5.
   rating_scale: "0-100"
 
+  # Added for the IGDB merge. Also not read from the CSV: they say what the
+  # rating and popularity numbers MEAN, because IGDB games mean something
+  # different by them (see sources.igdb below).
+  rating_kind: "steam_positive_pct"
+  popularity_source: "steam_review_count"
+
   column_sources:
 
     title:
       from: name
-      transform: clean_text
-      note: "Shown on screen exactly as Steam spells it."
+      transform: clean_display_title
+      note: >
+        Shown on screen as Steam spells it, minus the trademark signs
+        (TM, R, C, SM) and doubled spaces. The untouched name is kept in
+        game_sources.title_in_source.
 
     title_search:
       from: name
@@ -180,7 +198,7 @@ fields:
 
     description:
       from: short_description
-      transform: clean_text
+      transform: clean_html_text
       note: "Steam's one or two sentence blurb. Max ~342 characters."
 
     # Steam ships two long descriptions and they are identical 84% of the time.
@@ -191,7 +209,7 @@ fields:
     long_description:
       from: about_the_game
       fallback: detailed_description
-      transform: clean_text
+      transform: clean_html_text
       note: "Full 'About This Game' text, ~1,400 chars average. Detail view only."
 
     # Plural on purpose. About 8% of games have more than one developer and
@@ -210,6 +228,13 @@ fields:
     cover_image_url:
       from: header_image
       note: "Steam's banner image. Always present in our data."
+
+    header_image_url:
+      from: header_image
+      note: >
+        The wide banner image. For Steam it is the same picture as
+        cover_image_url. It is its own column because IGDB's cover is a tall
+        box-art picture, so IGDB games need a different image here.
 
     store_url:
       from: appid
@@ -357,6 +382,12 @@ vocabulary:
     - {name: visual_novel, display_name: "Visual Novel"}
     - {name: survival, display_name: "Survival"}
     - {name: horror, display_name: "Horror"}
+    # DRAFT for Austin (2026-11-16, Ronnie): three IGDB genres with nowhere to
+    # go. Without them about 2,200 IGDB games have no genre at all, and the
+    # "95% of DATA 1 games have a genre" check fails for IGDB.
+    - {name: music_rhythm, display_name: "Music / Rhythm"}
+    - {name: card_and_board, display_name: "Card & Board"}
+    - {name: quiz_trivia, display_name: "Quiz / Trivia"}
 
   gameplay:
     - {name: exploration, display_name: "Exploration"}
@@ -429,6 +460,9 @@ vocabulary:
     - {name: two_d, display_name: "2D"}
     - {name: three_d, display_name: "3D"}
     - {name: vr, display_name: "VR"}
+    # DRAFT for Austin: IGDB's "Text" perspective (9,689 games, text adventures)
+    # had nowhere to go, and without it IGDB perspective coverage stays at 90%.
+    - {name: text_based, display_name: "Text-Based"}
 
   multiplayer:
     - {name: single_player, display_name: "Single-player"}
@@ -451,6 +485,22 @@ vocabulary:
     - {name: windows, display_name: "Windows"}
     - {name: macos, display_name: "macOS"}
     - {name: linux, display_name: "Linux"}
+    # DRAFT for Austin (2026-11-16, Ronnie): platform families for IGDB games,
+    # which list consoles and phones as well as PC. Which IGDB platform names
+    # land in each family is spelled out in sources.igdb.platform_families.
+    # Steam games only ever get windows / macos / linux from Steam itself.
+    - {name: dos, display_name: "DOS"}
+    - {name: pc_vr, display_name: "PC VR"}
+    - {name: standalone_vr, display_name: "Standalone VR"}
+    - {name: playstation, display_name: "PlayStation"}
+    - {name: xbox, display_name: "Xbox"}
+    - {name: nintendo, display_name: "Nintendo"}
+    - {name: sega, display_name: "Sega"}
+    - {name: mobile, display_name: "Mobile"}
+    - {name: web_browser, display_name: "Web Browser"}
+    - {name: arcade_cabinet, display_name: "Arcade Cabinet"}
+    - {name: retro_computer, display_name: "Retro Computer"}
+    - {name: other_console, display_name: "Other Console"}
 
 # -----------------------------------------------------------------------------
 # 6. ALIASES - raw Steam text -> one of our features
@@ -649,3 +699,295 @@ aliases:
   "2D": [perspective, two_d]
   "3D": [perspective, three_d]
   "VR": [perspective, vr]
+
+  # ---------------------------------------------------------------------------
+  # DRAFT for Austin (2026-11-16, Ronnie): IGDB spellings.
+  #
+  # IGDB names the same ideas differently ("Role-playing (RPG)", "First
+  # person", "Single player"). Without these, only 46.6% of IGDB genres, 18%
+  # of perspectives and 17% of game modes reached a weighted feature, and the
+  # import refuses to run below 95% (sources.igdb.min_alias_coverage).
+  # Every line points at a feature that already exists, except the drafted
+  # genres music_rhythm, card_and_board, quiz_trivia and perspective text_based.
+  # Austin: please check these and change or delete any you disagree with.
+  #
+  # Left display-only on purpose, so they show as tags but do not count for
+  # the ML: "Tactical" (decision 6), "MOBA", "Battle Royale", "Auditory".
+  # ---------------------------------------------------------------------------
+  # IGDB genres
+  "Role-playing (RPG)": [genre, rpg]
+  "Simulator": [genre, simulation]
+  "Platform": [genre, platformer]
+  "Sport": [genre, sports]
+  # These four arrive in IGDB's GENRES list, so they map to a genre. (Steam's
+  # "RTS" and "Point & Click" tags map to mechanics instead; an alias can only
+  # have one target, and these IGDB spellings never appear on Steam.)
+  "Point-and-click": [genre, adventure]
+  "Turn-based strategy (TBS)": [genre, strategy]
+  "Real Time Strategy (RTS)": [genre, strategy]
+  "Hack and slash/Beat 'em up": [genre, action]
+  "Pinball": [genre, casual]                 # same idea as "Arcade" -> casual
+  "Music": [genre, music_rhythm]             # also matches Steam's "Music" tag (1,050 games)
+  "Card & Board Game": [genre, card_and_board]
+  "Quiz/Trivia": [genre, quiz_trivia]
+  # IGDB themes
+  "Science fiction": [theme, sci_fi]
+  "Warfare": [theme, military]
+  # IGDB player perspectives ("Third person" already matches "Third Person")
+  "First person": [perspective, first_person]
+  "Side view": [perspective, side_scroller]
+  "Bird view / Isometric": [perspective, isometric]
+  "Virtual Reality": [perspective, vr]
+  "Text": [perspective, text_based]
+  "Text-Based": [perspective, text_based]   # Steam's spelling of the same thing
+  # IGDB game modes ("Multiplayer" and "Split screen" already match)
+  "Single player": [multiplayer, single_player]
+  "Co-operative": [multiplayer, co_op]
+  "Massively Multiplayer Online (MMO)": [multiplayer, mmo]
+
+
+# =============================================================================
+# 7. SOURCES - where games come from, and how the two datasets merge
+#
+# Steam is the main source. Its settings are the dataset / selection / fields
+# sections above, left exactly where they were because Kayne's tools read
+# them there. IGDB is the second source and everything about it is here.
+#
+# The rules in short (the full write-up is in DATABASE.md):
+#   1. Steam is imported first with the same game ids main gives it.
+#   2. Steam's own duplicate apps (same game sold under several app ids) are
+#      folded into one game, keeping every app id in game_sources.
+#   3. Each IGDB game is matched to at most one Steam game. A match keeps the
+#      Steam game and every Steam value; IGDB only fills empty columns and
+#      adds features Steam did not have.
+#   4. IGDB games with no match become new games, numbered after Steam in
+#      IGDB id order, so the ids are the same on every machine (REL 2).
+# =============================================================================
+sources:
+  steam:
+    # Pointer, not a copy: a second copy of the Steam settings could drift.
+    settings_from: [dataset, selection, fields]
+    # Which Steam tags or genres mark a game as adult content (games.is_adult).
+    # "Nudity" is NOT here on purpose: it is on mainstream games like The
+    # Witcher 3, and a safe-mode switch should not hide those.
+    adult_markers: ["Sexual Content", "NSFW", "Hentai"]
+    # The three platform columns, and the name platforms_raw shows for each.
+    # Spelled the way IGDB spells them, so a merged game lists each platform once.
+    platform_columns: {windows: "PC (Microsoft Windows)", mac: "Mac", linux: "Linux"}
+
+  igdb:
+    enabled: true
+    csv_path: "data/raw/game_dataset_cleaned.csv"
+    source_name: "kaggle_igdb_games"
+    # TODO (CON 4): fill in the Kaggle dataset link, its license and the date
+    # the snapshot was taken, then credit it on the Help page.
+    dataset_url: null
+    license: null
+    retrieved_at: null
+    # Release dates after this day are flagged games.is_upcoming = 1. It is a
+    # fixed date, not "today", so two people importing on different days
+    # still get identical tables (REL 2). This is the day the data was checked.
+    upcoming_after: "2026-11-16"
+    rating_scale: "0-100"
+    rating_kind: "igdb_user_score"
+
+    # IGDB "categories" we leave out entirely. expanded_game is a bundle of
+    # a game plus its DLC, not a game of its own. Remakes, remasters and
+    # standalone expansions ARE real games and stay.
+    drop_categories: ["expanded_game"]
+
+    # Summaries shorter than this are not real descriptions ("Fishing",
+    # "Duh"), so they become NULL.
+    min_summary_chars: 15
+    # games.description is the summary cut at a sentence end near this length,
+    # so it fits the same space as Steam's one or two sentence blurb.
+    short_description_chars: 350
+
+    # Do not import until at least this share of IGDB genres, perspectives and
+    # game modes reach a weighted feature (or are demoted to a tag on purpose).
+    min_alias_coverage: 0.95
+    coverage_gated_fields: [genres, player_perspectives, game_modes]
+
+    # Same idea as selection.demote_genres_to_tags for Steam.
+    demote_genres_to_tags: ["Indie"]
+    # Which IGDB theme marks a game as adult content.
+    adult_markers: ["Erotic"]
+
+    column_sources:
+      title:            {from: name, transform: clean_display_title}
+      title_search:     {from: name, transform: normalise_title}
+      release_date:     {from: release_date, transform: iso_date}
+      release_year:     {from: release_date, transform: year_from_date}
+      description:      {from: summary, transform: short_summary}
+      long_description: {from: summary, transform: clean_summary}
+      developers:       {from: main_developers, transform: join_list}
+      publishers:       {from: publishers, transform: join_list}
+      cover_image_url:  {from: cover_url, transform: clean_text,
+                         note: "IGDB's tall box-art cover."}
+      header_image_url: {from: screenshot_urls, transform: first_list_item, fallback: cover_url,
+                         note: "First screenshot (wide). Cover when there are no screenshots."}
+      rating:           {from: rating, transform: number,
+                         note: "IGDB user score, 0 to 100. rating_kind says so."}
+      # IGDB has no store page, playtime or review count, so store_url,
+      # playtime_hours, rating_count and popularity stay NULL.
+
+    # Which IGDB list feeds which feature category. Everything goes through
+    # the same alias map as Steam, so "Open world" and "Open World" become
+    # the same feature.
+    feature_sources:
+      genre:       {from: genres,              via: direct_or_alias}
+      multiplayer: {from: game_modes,          via: aliases}
+      perspective: {from: player_perspectives, via: aliases}
+      platform:    {from: platforms,           via: platform_families}
+      theme:       {from: themes,              via: aliases}
+      tag:         {from: [themes, keywords],  via: fallthrough}
+      gameplay:    {from: [themes, keywords],  via: aliases}
+      mechanic:    {from: [themes, keywords],  via: aliases}
+      structure:   {from: [themes, keywords],  via: aliases}
+
+    # The IGDB columns that are lists, and that get the list clean-up
+    # (re-join items split at a comma inside brackets, trim, dedupe).
+    list_columns: [genres, themes, keywords, player_perspectives, game_modes,
+                   platforms, main_developers, supporting_developers,
+                   publishers, franchise, series, game_engines,
+                   screenshot_urls, artwork_urls]
+    # Company lists where a lone suffix like "LLC" got split off its name.
+    company_columns: [main_developers, supporting_developers, publishers]
+    rejoin_suffixes: ["LLC", "Inc.", "Inc", "Ltd.", "Ltd", "Co.", "S.A."]
+    # Kept in games.raw_igdb_json, untouched apart from that clean-up.
+    raw_columns: [category, genres, themes, keywords, player_perspectives,
+                  game_modes, platforms, franchise, series, game_engines,
+                  supporting_developers, aggregated_rating]
+    # aggregated_rating 0 means "nobody rated it", not a score of zero.
+    zero_is_missing: [aggregated_rating]
+
+    # EXPLICIT platform list. Never a substring match: "PC Engine" and
+    # "PC-FX" are Japanese consoles, not PCs. An IGDB game that lists
+    # platforms but none of these cannot be the Steam game, so it never merges.
+    pc_platforms: ["PC (Microsoft Windows)", "Mac", "Linux", "DOS", "SteamVR",
+                   "Oculus VR", "Oculus Rift", "Windows Mixed Reality"]
+
+    # DRAFT for Austin: which IGDB platform names go in each platform family.
+    # Anything not listed is kept in games.platforms_raw but gets no feature;
+    # the report lists them.
+    platform_families:
+      windows: ["PC (Microsoft Windows)"]
+      macos: ["Mac"]
+      linux: ["Linux"]
+      dos: ["DOS"]
+      pc_vr: ["SteamVR", "Oculus VR", "Oculus Rift", "Windows Mixed Reality"]
+      standalone_vr: ["Meta Quest 2", "Meta Quest 3", "Oculus Quest", "Oculus Go",
+                      "PlayStation VR", "PlayStation VR2", "Gear VR", "Daydream",
+                      "visionOS"]
+      playstation: ["PlayStation", "PlayStation 2", "PlayStation 3", "PlayStation 4",
+                    "PlayStation 5", "PlayStation Portable", "PlayStation Vita",
+                    "PocketStation"]
+      xbox: ["Xbox", "Xbox 360", "Xbox One", "Xbox Series X|S"]
+      nintendo: ["Nintendo Switch", "Nintendo Switch 2", "Wii", "Wii U",
+                 "Nintendo GameCube", "Nintendo 64", "64DD",
+                 "Nintendo Entertainment System", "Family Computer",
+                 "Family Computer Disk System", "Super Nintendo Entertainment System",
+                 "Super Famicom", "Satellaview", "Game Boy", "Game Boy Color",
+                 "Game Boy Advance", "Nintendo DS", "Nintendo DSi", "Nintendo 3DS",
+                 "New Nintendo 3DS", "Virtual Boy", "Game & Watch", "Pokémon mini",
+                 "e-Reader / Card-e Reader", "Super NES CD-ROM System"]
+      sega: ["Sega Mega Drive/Genesis", "Sega Master System/Mark III", "Sega Saturn",
+             "Dreamcast", "Sega Game Gear", "Sega CD", "Sega 32X", "Sega CD 32X",
+             "SG-1000", "Sega Pico", "Visual Memory Unit / Visual Memory System"]
+      mobile: ["iOS", "Android", "Windows Phone", "Windows Mobile", "BlackBerry OS",
+               "Legacy Mobile Device", "Palm OS", "N-Gage"]
+      web_browser: ["Web browser"]
+      arcade_cabinet: ["Arcade"]
+      retro_computer: ["Commodore C64/128/MAX", "Amiga", "Amiga CD32", "ZX Spectrum",
+                       "Amstrad CPC", "Atari ST/STE", "Atari 8-bit", "Apple II",
+                       "Apple IIGS", "MSX", "MSX2", "PC-9800 Series", "PC-8800 Series",
+                       "BBC Microcomputer System", "Sharp X68000", "Sharp X1",
+                       "FM Towns", "FM-7", "Commodore VIC-20", "Commodore 16",
+                       "Commodore Plus/4", "Commodore PET", "Acorn Electron",
+                       "Acorn Archimedes", "Sinclair ZX81", "TRS-80",
+                       "TRS-80 Color Computer", "Texas Instruments TI-99",
+                       "Dragon 32/64", "NEC PC-6000 Series", "Amstrad PCW",
+                       "Thomson MO5", "Tatung Einstein", "Sinclair QL", "Sharp MZ-2200"]
+      other_console: ["TurboGrafx-16/PC Engine", "Turbografx-16/PC Engine CD",
+                      "PC Engine SuperGrafx", "PC-FX", "3DO Interactive Multiplayer",
+                      "Atari 2600", "Atari 5200", "Atari 7800", "Atari Jaguar",
+                      "Atari Jaguar CD", "Atari Lynx", "Neo Geo AES", "Neo Geo MVS",
+                      "Neo Geo CD", "Neo Geo Pocket", "Neo Geo Pocket Color",
+                      "ColecoVision", "Intellivision", "Vectrex", "Philips CD-i",
+                      "WonderSwan", "WonderSwan Color", "Odyssey 2 / Videopac G7000",
+                      "Ouya", "Google Stadia", "Playdate", "Arduboy", "Evercade",
+                      "Amazon Fire TV", "Zeebo", "Gizmondo"]
+
+    # How IGDB games are matched to Steam games. See pipeline/matching.py.
+    matching:
+      # Description similarity (TF-IDF cosine) thresholds:
+      #   below separate_below          different games
+      #   at or above merge_at_or_above same game (only used when nothing else decides)
+      #   in between                    a person has to look (data/match_review.csv)
+      separate_below: 0.1
+      merge_at_or_above: 0.5
+      # A description shorter than this is too little to compare.
+      min_description_chars: 40
+      # When two IGDB entries want the same Steam game, the lower rank wins.
+      category_rank: {main_game: 0, standalone_expansion: 1, remaster: 2, remake: 3}
+      # Words dropped from company names before comparing them, so
+      # "Bethesda Game Studios" and "Bethesda Softworks LLC" can be compared.
+      company_suffixes: [inc, ltd, llc, gmbh, co, corp, corporation, studio, studios,
+                         games, game, entertainment, interactive, software,
+                         productions, publishing, the]
+      # Words dropped for the last-chance "edition" key. A match on that key
+      # alone is never merged, only listed (remasters and special editions).
+      edition_words: ["the", "game of the year", "goty", "definitive", "deluxe",
+                      "ultimate", "complete", "enhanced", "anniversary", "remastered",
+                      "remaster", "hd", "director s cut", "directors cut", "special",
+                      "gold", "premium", "standard", "digital", "collector s",
+                      "collectors", "legacy", "edition", "version", "bundle",
+                      "collection"]
+      # A person's final word on a pair, applied after every rule.
+      overrides_path: "config/match_overrides.yaml"
+
+    # OPTIONAL and OFF: add features to untagged Steam games by finding alias
+    # names in their description. Off until the team agrees to it.
+    derived_text:
+      enabled: false
+      min_hits: 3
+      # Never add both sides of one of these pairs to a game.
+      contradictions:
+        - [[structure, linear], [structure, sandbox]]
+        - [[structure, linear], [structure, open_world]]
+        - [[multiplayer, single_player], [multiplayer, mmo]]
+
+
+# =============================================================================
+# 8. NON-GAME PATTERNS
+#
+# Steam and IGDB both list things that are not games: soundtracks, demos,
+# playtests, dedicated servers. A title that matches one of these gets
+# games.is_non_game = 1. It STAYS in the database (so a Steam library lookup
+# still finds it) but should stay off the map. Every match is listed in
+# data/merge_report.md so a person can check none of them is a real game.
+#
+# These are regular expressions, matched ignoring capitals. "alpha", "beta"
+# and "demo" only count as a separate word at the end or in brackets,
+# otherwise "Alpha Protocol" and "Sid Meier's Alpha Centauri" would be caught.
+# =============================================================================
+non_game_patterns:
+  - "friend'?s pass"
+  - "\\bplaytest\\b"
+  - "\\b(open|closed|public|private)\\s+(beta|alpha)\\b"
+  - "\\b(beta|alpha)\\s+(test|testing|build|version|branch|client|weekend)\\b"
+  - "[\\(\\[]\\s*(beta|alpha)\\s*[\\)\\]]"
+  - "[-:]\\s*(beta|alpha)\\s*$"
+  - "\\bstress test\\b"
+  - "\\btechnical test\\b"
+  - "\\bpublic test\\b"
+  - "\\btest server\\b"
+  - "\\bdedicated server\\b"
+  - "\\bearly access weekend\\b"
+  - "\\bfree weekend\\b"
+  - "\\bdemo\\b"
+  - "\\bsoundtracks?\\b"
+  - "(?-i:\\bOST\\b)"
+  - "(?-i:\\bSDK\\b)"
+  - "\\bbenchmark\\b"
+  - "\\bart ?book\\b"
