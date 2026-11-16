@@ -44,7 +44,7 @@ We are beginning our first scrum cycle. Current work focuses on:
 │   └── similar_pairs.yaml     # Approved similar-game pairs (DATA 2)
 │
 ├── data/
-│   ├── games.db               # Full game data and published map versions
+│   ├── games.db               # Full game data and map versions; NOT committed, build it (step 6)
 │   ├── map.db                 # The published map the website loads
 │   ├── import_report.md       # Report from the last import
 │   ├── raw/                   # Downloaded dataset; ignored by Git
@@ -123,7 +123,7 @@ Preserve versioned input snapshots, configuration, feature order, and generated 
 
 ## Running Locally
 
-A fresh clone already contains the game database and a published map, so you can run the website and the tests without downloading the dataset.
+A fresh clone contains the published map (`data/map.db`), so the website's map works straight away. It does **not** contain the game database (`data/games.db`): the full catalogue build is about 330 MB, over GitHub's file limit. To get the info panel's details and the database tests, download the dataset and build it (step 6). Tests that need the database skip until it exists.
 
 ### What you need
 
@@ -202,13 +202,13 @@ You only need this to build a new map version. Every setting lives in `config/ma
 | `python -m pipeline.build_map --publish --version-id v3` | Saves map version `v3` in `data/games.db` and rewrites `data/map.db` |
 | `python -m pipeline.export_map` | Rewrites `data/map.db` from the active map version |
 
-- Use a new version id for each published map. The pipeline refuses to reuse one, and a dry run prints a warning while `map_version` in the config names a published map (currently `v2`). Set it to the next id before building, or pass `--version-id`.
+- Use a new version id for each published map. The pipeline refuses to reuse one, and a dry run prints a warning while `map_version` in the config names a published map (currently `v3`). Set it to the next id before building, or pass `--version-id`.
 - Build published maps from a clean environment with the pinned `requirements.txt`, so the layout matches on every machine (REL 2).
-- After publishing, commit `data/games.db` and `data/map.db` together.
+- After publishing, commit `data/map.db`. `data/games.db` is too big to commit (about 330 MB), so share the build steps instead.
 
-### 6. Re-import the games (rare)
+### 6. Build or re-import the game database
 
-Re-importing is only needed after changing the dataset, the selection rule, or the tag vocabulary and aliases.
+On a fresh clone there is no `data/games.db`, so build it once: download the dataset (step 1 below), then run `python -m pipeline.create_tables` and `python -m pipeline.ingest`. After that, re-importing is only needed after changing the dataset, the selection rule, or the tag vocabulary and aliases.
 
 1. Download the [Steam games dataset](https://www.kaggle.com/datasets/artermiloff/steam-games-dataset) and save it as `data/raw/games_march2025_cleaned.csv` (about 447 MB; Git ignores it). Its SHA-256 should match the one in `data/import_report.md`.
 2. Run `python -m pipeline.ingest --reset`. It rebuilds the games and keeps their ids.
