@@ -1,0 +1,189 @@
+game_id,source,title,pattern
+94,steam,It Takes Two Friend's Pass,friend'?s pass
+181,steam,Monster Hunter Wilds Beta test,\b(beta|alpha)\s+(test|testing|build|version|branch|client|weekend)\b
+199,steam,Delta Force Alpha Test,\b(beta|alpha)\s+(test|testing|build|version|branch|client|weekend)\b
+213,steam,Warhammer: Vermintide Versus - Open Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+332,steam,Age of Empires IV Technical Stress Test,\bstress test\b
+522,steam,Street Fighter 6 - Open Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+1417,steam,For The King 2 Closed Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+1434,steam,Breeders of the Nephelym: Alpha,[-:]\s*(beta|alpha)\s*$
+1734,steam,Zumbi Blocks 2 Open Alpha,\b(open|closed|public|private)\s+(beta|alpha)\b
+1827,steam,Disney Speedstorm Closed Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+2988,steam,Total War: PHARAOH - Early Access Weekend,\bearly access weekend\b
+3012,steam,"Warhammer 40,000: Speed Freeks Open Beta",\b(open|closed|public|private)\s+(beta|alpha)\b
+3790,steam,Level Zero: Extraction - Closed Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+4711,steam,Homicipher: Demo,\bdemo\b
+7040,steam,Gatewalkers (Alpha),[\(\[]\s*(beta|alpha)\s*[\)\]]
+7685,steam,MetaWare High School (Demo),\bdemo\b
+7879,steam,Hello Guest: Hello Neighbor 2 pre-alpha,[-:]\s*(beta|alpha)\s*$
+7978,steam,Awaken - Astral Blade Gamescom Special Demo,\bdemo\b
+9647,steam,Defiance 2050 - Beta,[-:]\s*(beta|alpha)\s*$
+10501,steam,Drill Deal: Borehole (Alpha),[\(\[]\s*(beta|alpha)\s*[\)\]]
+10607,steam,Toy Tinker Simulator: BETA,[-:]\s*(beta|alpha)\s*$
+11375,steam,Veterans Online - Open Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+12366,steam,VR Benchmark Kanojo,\bbenchmark\b
+12832,steam,VALHALL: Harbinger - Beta Testing,\b(beta|alpha)\s+(test|testing|build|version|branch|client|weekend)\b
+14294,steam,Abbot's Book Demo,\bdemo\b
+14304,steam,Fablecraft Closed Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+14597,steam,Multiplayer FPS Demo,\bdemo\b
+14668,steam,The Dark Pictures Anthology: House of Ashes - Friend's Pass,friend'?s pass
+14672,steam,Vagrus - The Riven Realms: Demo (Prologue),\bdemo\b
+15135,steam,BDSM: Big Drunk Satanic Massacre Demo,\bdemo\b
+15950,steam,Sinless + OST,(?-i:\bOST\b)
+15961,steam,秋色的記憶(體驗版) / Fall...in Love (Demo),\bdemo\b
+16057,steam,Worlds of Aria - Beta version,\b(beta|alpha)\s+(test|testing|build|version|branch|client|weekend)\b
+16683,steam,Return Alive Closed Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+16893,steam,Doors Quest Demo,\bdemo\b
+17497,steam,Winning Love by Daylight [Ep 1 Demo],\bdemo\b
+17514,steam,Dungeon Of Zaar - Open Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+18870,steam,Etched Memories Demo,\bdemo\b
+20849,steam,Wildshape - Map Editor (free demo),\bdemo\b
+21396,steam,Erinye Demo,\bdemo\b
+22051,steam,Amarok Dreams Demo,\bdemo\b
+22459,steam,Brisk Square Demo,\bdemo\b
+22467,steam,Cubzh (Open Alpha),\b(open|closed|public|private)\s+(beta|alpha)\b
+22765,steam,SCP: Nemesi - Alpha Testing,\b(beta|alpha)\s+(test|testing|build|version|branch|client|weekend)\b
+23019,steam,The Dark Pictures Anthology: The Devil In Me - Friend's Pass,friend'?s pass
+23194,steam,4 for the Money Demo,\bdemo\b
+23198,steam,Aeris (BETA),[\(\[]\s*(beta|alpha)\s*[\)\]]
+23731,steam,SE VR World Demo,\bdemo\b
+26129,steam,Reboant Demo,\bdemo\b
+26257,steam,Endless Night - Alpha,[-:]\s*(beta|alpha)\s*$
+26373,steam,Teleporter: World of Gamers (Alpha),[\(\[]\s*(beta|alpha)\s*[\)\]]
+26550,steam,Power of Ten - Demo,\bdemo\b
+28034,steam,Blazing Core (beta),[\(\[]\s*(beta|alpha)\s*[\)\]]
+28162,steam,Ship Ahoy Open BETA,\b(open|closed|public|private)\s+(beta|alpha)\b
+28163,steam,Signal & Echo: Iris is Missing (demo),\bdemo\b
+28990,steam,Starecrown (DEMO),\bdemo\b
+29125,steam,Desktop Dungeons: Rewind - Daily Demo,\bdemo\b
+30121,steam,Pararea--Social VR for Everyone (Beta),[\(\[]\s*(beta|alpha)\s*[\)\]]
+30141,steam,Rail Adventures - VR Tech Demo,\bdemo\b
+32186,steam,Heaven Snakes [Beta],[\(\[]\s*(beta|alpha)\s*[\)\]]
+32845,steam,Anderson (Alpha),[\(\[]\s*(beta|alpha)\s*[\)\]]
+33729,steam,Canek: Quest for Corn [Demo],\bdemo\b
+34030,steam,The Curious Study of Dr. Blackwood: A VR Tech Demo,\bdemo\b
+34246,steam,Exoplanet: A Project Coreward Demo,\bdemo\b
+34320,steam,Juban Shotengai ~ Escape the Japanesse Shopping Street ~ [beta],[\(\[]\s*(beta|alpha)\s*[\)\]]
+34496,steam,Team Up VR (Beta),[\(\[]\s*(beta|alpha)\s*[\)\]]
+34596,steam,Aker Fern: Rdzeń Szatrisa/ The Shatris Core Demo,\bdemo\b
+34784,steam,Horror Engine: Tech Demo,\bdemo\b
+34978,steam,Star Rangers VR - Free Demo,\bdemo\b
+36764,steam,CRAZY DOG DEMO,\bdemo\b
+39056,steam,Morkredd Prøve (Demo),\bdemo\b
+39977,steam,The Moonflower (Alpha),[\(\[]\s*(beta|alpha)\s*[\)\]]
+40656,steam,Seena VR (Beta),[\(\[]\s*(beta|alpha)\s*[\)\]]
+42448,steam,Spaceship - Visual Effect Graph Demo,\bdemo\b
+42717,steam,Alpha Version.0,\b(beta|alpha)\s+(test|testing|build|version|branch|client|weekend)\b
+43742,steam,Atooms to Moolecules Demo,\bdemo\b
+45110,steam,Indiana Jones and the Great Circle - Digital Artbook,\bart ?book\b
+46473,steam,New Citizen - Alpha,[-:]\s*(beta|alpha)\s*$
+46515,steam,Outpost Defender 2-Beta,[-:]\s*(beta|alpha)\s*$
+48377,steam,"""Otherworldly: Beginning of the Rift"" Pre-Alpha",[-:]\s*(beta|alpha)\s*$
+48656,steam,Cyber Blades - Demo,\bdemo\b
+48669,steam,DDS(D.I.Y Drone Simulator) Demo,\bdemo\b
+48735,steam,Dream magic will Beta version,\b(beta|alpha)\s+(test|testing|build|version|branch|client|weekend)\b
+50372,steam,Gift to Humanity: Alpha,[-:]\s*(beta|alpha)\s*$
+50521,steam,Insect Adventure Demo,\bdemo\b
+50811,steam,"Operation: Harsh Doorstop ""Closed Beta""",\b(open|closed|public|private)\s+(beta|alpha)\b
+53865,steam,ASSASSIN: The First List (Beta),[\(\[]\s*(beta|alpha)\s*[\)\]]
+54404,steam,Alien Swarm: Reactive Drop - SDK,(?-i:\bSDK\b)
+55487,steam,Away To The Stars Closed Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+55939,steam,Battle Aces (Beta),[\(\[]\s*(beta|alpha)\s*[\)\]]
+56225,steam,Benchmark,\bbenchmark\b
+56226,steam,Benchmark Your Skills,\bbenchmark\b
+56484,steam,Black Myth: Wukong Benchmark Tool,\bbenchmark\b
+56984,steam,Boundary: Benchmark,\bbenchmark\b
+57212,steam,Bright Memory: Infinite Ray Tracing Benchmark,\bbenchmark\b
+57817,steam,Cappasity Demo,\bdemo\b
+57878,steam,Carball 360 (beta),[\(\[]\s*(beta|alpha)\s*[\)\]]
+58040,steam,Cat N Can beta test,\b(beta|alpha)\s+(test|testing|build|version|branch|client|weekend)\b
+60464,steam,Dashwalk Dueling Private Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+60481,steam,DatavizVR Demo,\bdemo\b
+60807,steam,Degradation(Alpha),[\(\[]\s*(beta|alpha)\s*[\)\]]
+61460,steam,Don Bradman Cricket 17 Demo,\bdemo\b
+61820,steam,Drifters Loot the Galaxy - Beta,[-:]\s*(beta|alpha)\s*$
+62154,steam,ECCO: The Last Whisper [Beta],[\(\[]\s*(beta|alpha)\s*[\)\]]
+62586,steam,Emberwood (Beta),[\(\[]\s*(beta|alpha)\s*[\)\]]
+62803,steam,Epic Trains 4 Demo,\bdemo\b
+63277,steam,EzBench Benchmark,\bbenchmark\b
+63984,steam,Fisherman's Island Alpha Test,\b(beta|alpha)\s+(test|testing|build|version|branch|client|weekend)\b
+64076,steam,Flax Engine - Tech Demo 2022,\bdemo\b
+64338,steam,Forex Demo Accelerator,\bdemo\b
+64470,steam,Fragmania.gg (BETA),[\(\[]\s*(beta|alpha)\s*[\)\]]
+64622,steam,Frontline: ART Book vol.I USA,\bart ?book\b
+64865,steam,GLBasic SDK - A Multiplatform BASIC Compiler,(?-i:\bSDK\b)
+65867,steam,Grimmwood Open Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+66739,steam,Hero Jumper Demo,\bdemo\b
+67655,steam,IRON EVIL - Beta,[-:]\s*(beta|alpha)\s*$
+67882,steam,InductVR (beta),[\(\[]\s*(beta|alpha)\s*[\)\]]
+68550,steam,Journey of Realm: Dawn Dew (Demo),\bdemo\b
+68568,steam,Journey's Land Demo,\bdemo\b
+68799,steam,KOLOTUN Pre-Alpha,[-:]\s*(beta|alpha)\s*$
+70969,steam,Manic Archers - Bullseye DEMO,\bdemo\b
+71716,steam,Military Operations: Benchmark,\bbenchmark\b
+72744,steam,Mythic Prelude - Concept Demo,\bdemo\b
+73105,steam,Nero Score - PC benchmark & performance test,\bbenchmark\b
+73956,steam,OpenVR Benchmark,\bbenchmark\b
+74136,steam,OutcastKidsAndCity DEMO,\bdemo\b
+74354,steam,PT Closed Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+77374,steam,RoboSquad Revolution (Beta),[\(\[]\s*(beta|alpha)\s*[\)\]]
+77875,steam,SAO Utils: Beta,[-:]\s*(beta|alpha)\s*$
+78194,steam,Saint Paul Pre-Alpha,[-:]\s*(beta|alpha)\s*$
+78547,steam,Season of War (Beta),[\(\[]\s*(beta|alpha)\s*[\)\]]
+78637,steam,Seeking Asylum: The Game (DEMO),\bdemo\b
+80029,steam,Southfield Closed Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+80945,steam,Stellarace (Demo),\bdemo\b
+80955,steam,Stepan 's Life (Beta),[\(\[]\s*(beta|alpha)\s*[\)\]]
+81304,steam,SummonerVR (alpha),[\(\[]\s*(beta|alpha)\s*[\)\]]
+81321,steam,Sunderfolk - Closed Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+82942,steam,The Dreamscape | Open Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+83406,steam,The Legendary Player - Make Your Reputation - OPEN BETA,\b(open|closed|public|private)\s+(beta|alpha)\b
+85283,steam,UNCORPOREAL - Holographic Photography Demo,\bdemo\b
+85629,steam,Up on the Rooftop Soundtrack,\bsoundtracks?\b
+86193,steam,Vip Em Up - The action movies stars beat em up Ep.0 ( beta ),[\(\[]\s*(beta|alpha)\s*[\)\]]
+86749,steam,We Happy Few - Soundtrack and Digital Goods Bundle,\bsoundtracks?\b
+97911,igdb,Yahari Game Demo Ore no Seishun Love-come wa Machigatteiru.,\bdemo\b
+97918,igdb,Yahari Game Demo Ore no Seishun Love-come wa Machigatteiru. Zoku,\bdemo\b
+107086,igdb,Organ Quarter Pre-Alpha Demo,\bdemo\b
+108305,igdb,Hell Warders - Beta,[-:]\s*(beta|alpha)\s*$
+118661,igdb,Strike Vector EX Open Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+120979,igdb,Network Adventure Bugsite: Alpha,[-:]\s*(beta|alpha)\s*$
+131162,igdb,Hidamari Sketch: Doko Demo Sugoroku x 365,\bdemo\b
+132278,igdb,Doko Demo Issho: Let's Gakkou!,\bdemo\b
+132281,igdb,Doko Demo Issyo,\bdemo\b
+133443,igdb,Soundtrack Attack,\bsoundtracks?\b
+134200,igdb,Nodge Pre-Alpha,[-:]\s*(beta|alpha)\s*$
+137434,igdb,Kanojo wa Dare to demo Sex suru.,\bdemo\b
+137891,igdb,Just Survive Test Server,\btest server\b
+138350,igdb,SDK Spriter,(?-i:\bSDK\b)
+138351,igdb,SDK Paint,(?-i:\bSDK\b)
+139271,igdb,Ancestors Legacy Multiplayer Open Beta,\b(open|closed|public|private)\s+(beta|alpha)\b
+143745,igdb,Blood Ancestors: Open Alpha,\b(open|closed|public|private)\s+(beta|alpha)\b
+146848,igdb,The Anomaly Demo,\bdemo\b
+153806,igdb,Nothing to Hide Demo,\bdemo\b
+154269,igdb,Haunted PS1 Demo Disc 2020,\bdemo\b
+156950,igdb,Digital Devil Saga: Avatar Tuner - A's Test Server,\btest server\b
+182352,igdb,Doko Demo Issho: Toro to Nagareboshi,\bdemo\b
+185799,igdb,Kobayashi ga Kawai Sugite Tsurai!! Game Demo Kyun Moe Max ga Tomaranai,\bdemo\b
+186214,igdb,Simple 2500 Series Portable Vol. 7: The Doko Demo Kanji Quiz - Challenge! Kanji Kentei 2006,\bdemo\b
+186219,igdb,Simple DS Series Vol. 10: The Doko Demo Kanji Quiz,\bdemo\b
+188309,igdb,Tatoe Sore ga Ningyou Demo,\bdemo\b
+195795,igdb,R-Beta,[-:]\s*(beta|alpha)\s*$
+198174,igdb,Yahari Game Demo Ore no Seishun Love-come wa Machigatteiru. Kan,\bdemo\b
+205008,igdb,Doko Demo Issyo: Watashi na Ehon,\bdemo\b
+205009,igdb,Doko Demo Issho: Toro to Ippai,\bdemo\b
+205011,igdb,Doko Demo Issho Portable,\bdemo\b
+205017,igdb,Doko Demo Issho: Toro's Story App,\bdemo\b
+214182,igdb,Super Freaks: The Demo,\bdemo\b
+214309,igdb,Reddie and the Redirected Walker: Module 01 - Alpha,[-:]\s*(beta|alpha)\s*$
+215497,igdb,Network Adventure Bugsite: Beta,[-:]\s*(beta|alpha)\s*$
+219400,igdb,Kimomen Demo Kyokon nara School Caste no Chouten ni Tateru!? Gakuen Ichi no Motekawa Shuudan ni Tanetsuke Shimakuri! Yume no Gakuen Harem!,\bdemo\b
+220224,igdb,Danganronpa V3: Killing Harmony Demo Ver.,\bdemo\b
+222424,igdb,Uranai Demo Shite Miyouka DS,\bdemo\b
+227044,igdb,Platinum Demo: Final Fantasy XV,\bdemo\b
+227941,igdb,Need for Speed: Most Wanted Demo,\bdemo\b
+232810,igdb,Pokémon Omega Ruby and Alpha Sapphire Special Demo Version,\bdemo\b
+232811,igdb,Pokémon Sun and Moon Special Demo Version,\bdemo\b
+235699,igdb,BugDive Deluxe Demo Edition,\bdemo\b
+238454,igdb,Halo: Combat Evolved - E3 2000 Demo,\bdemo\b
+239611,igdb,Human Benchmark,\bbenchmark\b

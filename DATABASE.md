@@ -2,40 +2,18 @@
 
 CSCI 150, Interactive Map of Video Games.
 
-> **This is the `test/full-90k-database` branch.** It imports the entire Steam
-> catalogue, all 89,618 games, instead of the 1,000-game map dataset, so we can
-> see what the full data looks like. Do not merge it into `main`.
+> **This is the `test/steam-plus-igdb` branch.** It merges the IGDB dataset
+> (232,595 games) into the full Steam catalogue (89,618 games). Do not merge it
+> into `main` until the team has reviewed the drafted aliases and the hand-offs
+> at the end of the "Steam + IGDB merge" section below.
 >
-> How it differs from `main`:
->
-> * `selection.mode` is `all`, `target_count` is `null`, and `min_genres` and
->   `min_tags` are `0`, so nothing is filtered out. The vocabulary and aliases
->   are the team's, the same as `main`.
-> * `data/games.db` is not committed. The full build is about 330 MB, over
->   GitHub's 100 MB file limit. Build it yourself: `python -m pipeline.create_tables`
->   then `python -m pipeline.ingest`. It takes under two minutes and about 1 GB of
->   memory.
-> * Map v3 is published from this database: `hybrid_max`, 72,746 games (the
->   16,872 tagless games have no vector and are left off). `max_map_games` in
->   the config raises the publish cap above CON 3's 1,100 for this branch only;
->   PERF 1-3 have not been retested at this size. `data/map.db` holds v3 and is
->   about 13 MB.
-> * Four tests behave differently, each saying why: the DATA 1 gate skips
->   (its minimums are off here), the real-database map build skips (too slow
->   for the suite at this size), DATA 2 skips (its 80% target is for a map of
->   at most 1,100 games), and the vectorizer smoke test checks unit length only
->   for games that have tags, because about 17,000 games in the full catalogue
->   have none.
->
-> What the full build showed, worth reading before the next dataset decision:
->
-> * 16,872 games (18.8%) have no Steam tags at all in this snapshot, including
->   very popular ones such as Overwatch 2, Marvel Rivals, THE FINALS and Metro
->   Exodus. `main`'s `min_tags: 3` rule drops them, so they are not on the map.
-> * 87,301 games (97.4%) would pass DATA 1.
-> * 890 normalised titles appear more than once, against 0 in the 1,000-game build.
-> * Search stays fast: an indexed title lookup takes under 1 ms, a substring
->   search about 60 ms.
+> * `data/games.db` is not committed (about 750 MB). Map v3 and `data/map.db`
+>   are untouched: this branch builds `games.db` with no map in it.
+> * Put both CSVs in `data/raw/`: `games_march2025_cleaned.csv` (Steam) and
+>   `game_dataset_cleaned.csv` (IGDB). Then `python -m pipeline.create_tables`
+>   and `python -m pipeline.ingest`. `--steam-only` imports Steam alone, like main.
+> * The import writes `data/import_report.md`, `data/merge_report.md`,
+>   `data/match_review.csv` (pairs a person should check) and `data/non_games.csv`.
 
 This file covers the database and the import process, which Ronnie owns. The ML
 pipeline (coordinates, clusters, feature vectors and neighbors) belongs to Austin
@@ -314,3 +292,132 @@ The validator rejects a map for any of these, so check them before calling:
 * **SEC 5** says browser storage holds only the saved map configuration and
   guide-completion status, but the scrum doc adds a browser SQLite cache of map
   data. One of the two needs updating.
+
+---
+
+## Steam + IGDB merge (test/steam-plus-igdb)
+
+### Measured build
+
+| | |
+|---|---|
+| Games | 252,030 (89,586 Steam + 162,444 IGDB-only) |
+| Run time | about 290 s (two runs: 286 s, 289 s) |
+| Peak memory | about 2.6 GB |
+| `data/games.db` | about 750 MB |
+| Second build from scratch | identical tables (row-by-row hash of all 9 tables) |
+| Steam SHA-256 | `04d8df2778aaa8f8b575934b7072d55224d37a2ded23e8261583f0fcf668dfab` |
+| IGDB SHA-256 | `1e2e5b3d4e4857a044bbaaffaf088e0a056ca19c0e416e80d2c4551c71915a28` |
+
+Measured on Python 3.14 with the pinned requirements, on a Linux machine.
+
+### What happens, in order
+
+1. **Steam**, read exactly like main. Every app gets main's id (1, 2, 3, ... in
+   selection order), so every Steam game keeps its id.
+2. **Fold Steam's own duplicate apps.** Same strict title key, same release
+   date, a shared company and the same short description = one game. 26 groups,
+   58 apps (EA SPORTS FC 25 x4, Shadow of the Tomb Raider x5, Metro Exodus and
+   its Enhanced Edition app, ...). The app with the most reviews is the game;
+   the others become extra steam rows in `game_sources` (`match_method =
+   'steam_fold'`) and keep their numbers as gaps. The kept game takes the union
+   of the group's features; `raw_tags_json` (votes) comes from the kept app only.
+3. **Read IGDB and clean it.** Drop the 6 nameless rows and the 1,543
+   `expanded_game` entries (bundles). Re-join list items split at commas
+   ("4X (explore, expand, ...)"), dedupe, `Missing` becomes NULL.
+4. **Check alias coverage.** The import stops if fewer than 95% of IGDB genres,
+   perspectives or game modes reach a weighted feature.
+5. **Match each IGDB game to at most one Steam game** (`pipeline/matching.py`):
+   strict key, then roman numerals, then no spaces, then edition words removed.
+   The first key that finds a Steam title decides.
+   * MERGE: strict key + same year + no company conflict, or a shared company
+     (the roman and compact keys also need the years within one).
+   * NEW: companies conflict, IGDB lists no PC-family platform (explicit list,
+     "PC Engine" is a console), descriptions differ (TF-IDF cosine < 0.1), or
+     only the edition key matches.
+   * MERGE ON TEXT: years differ, no company info, descriptions >= 0.5.
+   * REVIEW (kept separate, listed): 0.1 to 0.5, no description to compare, or
+     several Steam games with the title.
+   * One Steam game gets at most one merge: same year first, then company,
+     then main game over remaster, then lowest IGDB id.
+   * `config/match_overrides.yaml` is applied last and always wins.
+6. **Write.** One transaction. Merged games keep the Steam id and every Steam
+   value; IGDB only fills empty columns (142 publishers, 69 long descriptions,
+   29 developers, 7 descriptions) and adds features with `source = 'igdb'`.
+   New IGDB games get ids after the last Steam id, in IGDB id order (REL 2).
+
+Result: 68,602 merged, 1,946 review, 160,498 new.
+
+### New columns
+
+| table | column | meaning |
+|---|---|---|
+| games | rating_kind | `steam_positive_pct` or `igdb_user_score` |
+| games | popularity_source | `steam_review_count`, NULL for IGDB-only games (IGDB has no counts) |
+| games | header_image_url | wide image: Steam header, IGDB first screenshot (else cover) |
+| games | platforms_raw | JSON list of every platform the sources name |
+| games | is_adult | config `adult_markers` matched (safe-mode, frontend hand-off) |
+| games | primary_source | `steam` or `igdb` |
+| games | is_non_game | name matches `non_game_patterns` (demos, playtests, servers); stays in the DB |
+| games | is_upcoming | release date after `sources.igdb.upcoming_after` (fixed date, REL 2) |
+| games | tag_source | `steam_votes`, `igdb` or `none` |
+| games | raw_tags_kind | `votes` or `presence` |
+| games | raw_igdb_json | the IGDB lists, untouched |
+| game_sources | title_in_source, release_date_in_source | the source's own spelling |
+| game_sources | match_method, match_score | which rule attached the row, description similarity |
+| game_features | source | `steam`, `igdb` or `derived_text` |
+
+`raw_tags_json` still means Steam tag -> votes and nothing else. The 9,906
+untagged Steam games rescued by IGDB have `tag_source = 'igdb'`,
+`raw_tags_kind = 'presence'` and `raw_tags_json` NULL: no votes were invented.
+The optional `derived_text` step is off.
+
+Untagged Steam games (16,872 apps): 8 duplicate apps (folded), 69 non-games,
+4,548 got 3+ IGDB tags (Overwatch 2, Marvel Rivals, THE FINALS, Muck, Crab
+Game), 6,489 got 0 to 2, 5,671 have no IGDB match but have Steam genres and a
+description, 87 have almost nothing. DATA 1 pass rate: Steam games with Steam
+votes 98.4%, rescued by IGDB 97.8%, still untagged 90.8%; IGDB-only games with
+IGDB tags 70.3%, without 13.4%.
+
+### Steam safety, checked against a main build
+
+Compared with a database built from main on the same CSV: all 89,618 app ids
+are present, 89,586 keep the same game id (the other 32 are the folded apps).
+The only value changes are: 889 titles lose a TM / R / C sign or a doubled or
+non-breaking space; 2,015 short and 8,263 long descriptions are HTML-unescaped
+(`&amp;` to `&`); and empty Steam columns filled from IGDB. Three Steam tags now
+reach a weighted feature through the drafted aliases ("Text-Based" 2,147 games,
+"Music" 1,050, "Pinball" 136). `config/similar_pairs.yaml` titles lost their TM
+signs too, to keep matching `games.title`.
+
+### Drafted for Austin (marked DRAFT in map_config.yaml)
+
+IGDB aliases, the platform families (`dos`, `pc_vr`, `standalone_vr`,
+`playstation`, `xbox`, `nintendo`, `sega`, `mobile`, `web_browser`,
+`arcade_cabinet`, `retro_computer`, `other_console`), the perspective
+`text_based`, and the genres `music_rhythm`, `card_and_board`, `quiz_trivia`.
+Coverage with them: genres 99.1% (Indie left as a tag on purpose),
+perspectives 99.2%, modes 99.7%.
+
+### Test changes on this branch
+
+* New: `tests/test_matching.py` (keys, cleaning, every real-case rule),
+  `tests/test_merge_database.py` (parity, folding, rescue, Steam safety).
+* Steam-only checks in `test_data_quality.py` (long description, developers)
+  now look at Steam games only; IGDB's numbers are in the merge report.
+* The vectorizer smoke test and the real-database map build skip above a size
+  limit instead of running out of memory (the corpus alone needs over 10 GB).
+
+### Open items and hand-offs (not built)
+
+* **CON 4:** the IGDB Kaggle link, license and snapshot date are still empty
+  in `sources.igdb`. Credit both datasets on the Help page.
+* **Kayne:** weighting for presence-only IGDB tags; placing untagged games by
+  description plus Steam genres; which games go on the map (is_non_game,
+  IGDB-only games); t-SNE memory at 252,000 games; a cross-source neighbour check.
+  `build_map` does not filter `is_non_game` yet.
+* **Frontend:** year and platform in search results (10,186 titles are shared),
+  accent-insensitive search, source-aware rating and review labels, the wide
+  image fallback, a platform filter, a safe-mode toggle, a "not on the map" note.
+* **Everyone:** look through `data/match_review.csv` (6,117 pairs) and
+  `data/non_games.csv`, and settle pairs in `config/match_overrides.yaml`.
