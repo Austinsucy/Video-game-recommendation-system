@@ -35,7 +35,16 @@ from sqlalchemy.dialects import sqlite as sqlite_dialect
 from backend.app.db import DB_PATH
 from backend.app.models import Game
 from pipeline.config import REPO_ROOT, csv_columns_needed, load_config
+from pipeline.cleaning import clean_display_title
 from pipeline.ingest import as_list, build_game_row
+
+# Columns build_game_row works out itself for a Steam game, rather than
+# copying from one CSV column. Listed here so this tool knows it can fill them.
+DERIVED_COLUMNS = {
+    "rating_scale", "rating_kind", "popularity_source", "platforms_raw", "is_adult",
+    "primary_source", "is_non_game", "is_upcoming", "tag_source", "raw_tags_kind",
+    "raw_igdb_json",
+}
 
 
 def missing_columns(conn: sqlite3.Connection) -> list[str]:
@@ -70,9 +79,11 @@ def run(check_only: bool = False) -> dict:
             return {"added": []}
 
         # Every column we add has to say where its data comes from, or we would
-        # be adding a column we cannot fill.
+        # be adding a column we cannot fill. Some columns are worked out by
+        # build_game_row from other Steam data instead of read from one CSV
+        # column (rating_kind, platforms_raw, ...); those are fillable too.
         sources = cfg["fields"]["column_sources"]
-        unmapped = [c for c in to_add if c not in sources]
+        unmapped = [c for c in to_add if c not in sources and c not in DERIVED_COLUMNS]
         if unmapped:
             raise SystemExit(
                 f"These columns are in models.py but not in fields.column_sources, "
@@ -126,7 +137,7 @@ def run(check_only: bool = False) -> dict:
             # Safety check: if the title from the CSV does not match what we
             # stored, this is probably a different snapshot of the dataset, and
             # filling columns from it would mix two versions of the data.
-            if row["title"] != stored_title:
+            if row["title"] != clean_display_title(stored_title):
                 title_mismatches.append(f"{stored_title!r} vs {row['title']!r}")
                 continue
             updates.append(tuple(row[c] for c in to_add) + (game_id,))

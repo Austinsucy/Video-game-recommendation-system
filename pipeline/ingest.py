@@ -29,6 +29,7 @@ import hashlib
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -43,6 +44,14 @@ from backend.app.models import (
     GameFeatureCoverage,
     GameSource,
     MapVersion,
+)
+from pipeline.cleaning import (
+    clean_display_title,
+    clean_html_text,
+    compile_patterns,
+    json_list,
+    non_game_match,
+    number,
 )
 from pipeline.config import (
     REPO_ROOT,
@@ -223,6 +232,9 @@ def sha256_file(path: Path) -> str:
 # Look-up table so the config can name a transform as a string.
 TRANSFORMS = {
     "clean_text": clean_text,
+    "clean_display_title": clean_display_title,
+    "clean_html_text": clean_html_text,
+    "number": number,
     "normalise_title": normalise_title,
     "year_from_date": year_from_date,
     "iso_date": iso_date,
@@ -468,7 +480,31 @@ def build_game_row(raw_row: dict, cfg: dict, game_id: int) -> dict:
 
     # rating_scale is not read from the CSV, it describes what `rating` means.
     # Only set it when there is actually a rating to describe.
-    row["rating_scale"] = cfg["fields"]["rating_scale"] if row.get("rating") is not None else None
+    has_rating = row.get("rating") is not None
+    row["rating_scale"] = cfg["fields"]["rating_scale"] if has_rating else None
+    row["rating_kind"] = cfg["fields"].get("rating_kind") if has_rating else None
+    row["popularity_source"] = (cfg["fields"].get("popularity_source")
+                                if row.get("popularity") is not None else None)
+
+    # The columns added for the IGDB merge. For a Steam game they are worked
+    # out from Steam's own data, so a Steam game looks the same whether or
+    # not IGDB is imported alongside it.
+    steam_cfg = (cfg.get("sources") or {}).get("steam") or {}
+    platform_columns = steam_cfg.get("platform_columns") or {
+        "windows": "PC (Microsoft Windows)", "mac": "Mac", "linux": "Linux"}
+    row["platforms_raw"] = json_list([label for column, label in platform_columns.items()
+                                      if _truthy(raw_row.get(column))])
+    genre_list = list(raw_row.get("genre_list") or [])
+    tag_list = list(raw_row.get("tag_list") or [])
+    markers = set(steam_cfg.get("adult_markers") or [])
+    row["is_adult"] = int(bool(markers & (set(genre_list) | set(tag_list))))
+    row["primary_source"] = "steam"
+    row["is_non_game"] = int(non_game_match(raw_row.get("name"), _non_game_patterns(cfg)) is not None)
+    row["is_upcoming"] = 0
+    has_votes = row.get("raw_tags_json") is not None
+    row["tag_source"] = "steam_votes" if has_votes else "none"
+    row["raw_tags_kind"] = "votes" if has_votes else None
+    row["raw_igdb_json"] = None
 
     # These two are whole numbers, not floats.
     if row.get("release_year") is not None:
@@ -479,10 +515,131 @@ def build_game_row(raw_row: dict, cfg: dict, game_id: int) -> dict:
     return row
 
 
-def run(limit: int | None = None, reset: bool = False) -> dict:
+def _truthy(value) -> bool:
+    """The platform columns are True/False, but a CSV can also hold "True" as text."""
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes")
+    return bool(value) and not (isinstance(value, float) and pd.isna(value))
+
+
+_PATTERN_CACHE: dict[tuple, list] = {}
+
+
+def _non_game_patterns(cfg: dict) -> list:
+    """Compile the config's non-game patterns once, not once per game."""
+    key = tuple(cfg.get("non_game_patterns") or [])
+    if key not in _PATTERN_CACHE:
+        _PATTERN_CACHE[key] = compile_patterns(key)
+    return _PATTERN_CACHE[key]
+
+
+def steam_match_frame(chosen: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    """The few Steam columns that folding and matching need, plus the keys.
+
+    Built from the same rows the import writes, so a key is always computed
+    from exactly the title we store.
+    """
+    from pipeline.cleaning import (company_keys, company_pattern, edition_pattern,
+                                   key_compact, key_edition, key_roman, key_strict)
+
+    matching = cfg["sources"]["igdb"]["matching"] if _igdb_cfg(cfg) else DEFAULT_MATCHING
+    companies = company_pattern(matching["company_suffixes"])
+    editions = edition_pattern(matching["edition_words"])
+    rank_column = cfg["selection"]["rank_by"]
+
+    frame = pd.DataFrame({
+        "appid": chosen["appid"].astype(int).values,
+        "title": chosen["name"].values,
+        "release_date": chosen["release_date"].map(iso_date).values,
+        "year": chosen["release_year"].values,
+        "desc": chosen["short_description"].map(clean_html_text).values,
+        "reviews": pd.to_numeric(chosen[rank_column], errors="coerce").fillna(0).values,
+        "companies": [company_keys(as_list(d) + as_list(p), companies)
+                      for d, p in zip(chosen["developers"], chosen["publishers"])],
+        "n_tags": chosen["tag_list"].str.len().values,
+    })
+    frame["k_strict"] = frame["title"].map(key_strict)
+    frame["k_roman"] = frame["title"].map(key_roman)
+    frame["k_compact"] = frame["title"].map(key_compact)
+    frame["k_edition"] = frame["title"].map(lambda t: key_edition(t, editions))
+    return frame
+
+
+def igdb_match_frame(igdb: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    """The same columns as steam_match_frame, for the IGDB games."""
+    from pipeline.cleaning import (clean_summary, company_keys, company_pattern, edition_pattern,
+                                   key_compact, key_edition, key_roman, key_strict)
+
+    ig = cfg["sources"]["igdb"]
+    companies = company_pattern(ig["matching"]["company_suffixes"])
+    editions = edition_pattern(ig["matching"]["edition_words"])
+    min_chars = int(ig.get("min_summary_chars", 15))
+    frame = pd.DataFrame({
+        "igdb_id": igdb["igdb_id"].values,
+        "title": igdb["name"].astype(str).values,
+        "year": igdb["release_date"].map(year_from_date).values,
+        "category": igdb["category"].values,
+        "desc": igdb["summary"].map(lambda v: clean_summary(v, min_chars)).values,
+        "platforms": igdb["platforms"].map(frozenset).values,
+        "companies": [company_keys(a + b + c, companies) for a, b, c in
+                      zip(igdb["main_developers"], igdb["supporting_developers"], igdb["publishers"])],
+    })
+    frame["k_strict"] = frame["title"].map(key_strict)
+    frame["k_roman"] = frame["title"].map(key_roman)
+    frame["k_compact"] = frame["title"].map(key_compact)
+    frame["k_edition"] = frame["title"].map(lambda t: key_edition(t, editions))
+    return frame
+
+
+# Used only when IGDB is switched off, so folding still has company rules.
+DEFAULT_MATCHING = {
+    "company_suffixes": ["inc", "ltd", "llc", "gmbh", "co", "corp", "studios", "games",
+                         "entertainment", "interactive", "software"],
+    "edition_words": ["the", "edition"],
+}
+
+
+def _igdb_cfg(cfg: dict) -> dict | None:
+    """The IGDB settings, or None when IGDB is not configured or switched off."""
+    ig = (cfg.get("sources") or {}).get("igdb")
+    return ig if ig and ig.get("enabled", True) else None
+
+
+def _merge_coverage(a: dict, b: dict) -> dict:
+    """Combine two coverage verdicts per category: present beats absent beats unknown."""
+    order = {"unknown": 0, "absent": 1, "present": 2}
+    return {c: max(a.get(c, "unknown"), b.get(c, "unknown"), key=order.__getitem__) for c in VALID_CATEGORIES}
+
+
+def derived_text_features(description: str | None, cfg: dict, aliases: dict, approved: set) -> set:
+    """OPTIONAL (off by default): features named word for word in a description.
+
+    Only used when sources.igdb.derived_text.enabled is true. Adds nothing
+    unless at least min_hits different features are found, and never adds
+    both sides of a configured contradiction (linear vs sandbox and so on).
+    """
+    settings = (_igdb_cfg(cfg) or {}).get("derived_text") or {}
+    if not settings.get("enabled") or not description:
+        return set()
+    text = " " + re.sub(r"[^\w\s-]+", " ", description.lower()) + " "
+    found = {target for raw, target in aliases.items()
+             if target in approved and target[0] != "tag" and f" {raw} " in text}
+    for left, right in settings.get("contradictions") or []:
+        if tuple(left) in found and tuple(right) in found:
+            found -= {tuple(left), tuple(right)}
+    return found if len(found) >= int(settings.get("min_hits", 3)) else set()
+
+
+def run(limit: int | None = None, reset: bool = False, use_igdb: bool = True) -> dict:
     """Do the whole import. Returns a stats dict for the report."""
+    from pipeline.igdb import (alias_coverage, build_igdb_row, igdb_feature_stats,
+                               merge_into_steam, platform_lookup, read_igdb,
+                               resolve_igdb_features)
+    from pipeline.matching import MatchSettings, fold_steam_duplicates, load_overrides, match_igdb
+
     cfg = load_config()
     dataset = cfg["dataset"]
+    igdb_cfg = _igdb_cfg(cfg) if use_igdb else None
 
     csv_path = (REPO_ROOT / dataset["csv_path"]).resolve()
     if not csv_path.exists():
@@ -493,6 +650,14 @@ def run(limit: int | None = None, reset: bool = False) -> dict:
             "  https://www.kaggle.com/datasets/artermiloff/steam-games-dataset\n"
             "and save it to that path, or point dataset.csv_path somewhere else."
         )
+    igdb_path = None
+    if igdb_cfg:
+        igdb_path = (REPO_ROOT / igdb_cfg["csv_path"]).resolve()
+        if not igdb_path.exists():
+            raise SystemExit(
+                f"Could not find the IGDB dataset at {igdb_path}\n"
+                "Save game_dataset_cleaned.csv there, or run with --steam-only."
+            )
 
     print(f"Reading {csv_path.name} ...")
     chosen, stats = select_games(cfg, csv_path, limit)
@@ -502,16 +667,69 @@ def run(limit: int | None = None, reset: bool = False) -> dict:
     # Record the path relative to the repo, like "data/raw/games.csv", rather
     # than the full path on whoever's laptop ran the import. The report is
     # committed, so an absolute path would just show one person's folders.
-    try:
-        stats["dataset_snapshot_ref"] = csv_path.relative_to(REPO_ROOT).as_posix()
-    except ValueError:
-        stats["dataset_snapshot_ref"] = str(csv_path)   # CSV kept outside the repo
+    stats["dataset_snapshot_ref"] = _repo_relative(csv_path)
 
     aliases = alias_lookup(cfg)
     registry = FeatureRegistry(cfg)
 
     source_name = dataset["source_name"]
     retrieved_at = str(dataset.get("retrieved_at") or "")
+
+    # --- step 1: fold Steam's own duplicate apps ---------------------------
+    print("Looking for Steam apps that are the same game ...")
+    steam_frame = steam_match_frame(chosen, cfg)
+    fold = fold_steam_duplicates(steam_frame)
+    merge = {"fold": fold}
+
+    # --- step 2: read IGDB and match it against Steam ----------------------
+    decisions = None
+    igdb_rows: dict[int, dict] = {}
+    if igdb_cfg:
+        print(f"Reading {igdb_path.name} ...")
+        igdb_df, igdb_stats = read_igdb(cfg, igdb_path)
+        igdb_stats["dataset_hash"] = sha256_file(igdb_path)
+        igdb_stats["dataset_snapshot_ref"] = _repo_relative(igdb_path)
+        merge["igdb_stats"] = igdb_stats
+
+        # Do not import until enough of IGDB's vocabulary maps onto ours.
+        coverage = alias_coverage(igdb_df, cfg, aliases, registry.approved)
+        merge["alias_coverage"] = coverage
+        floor = float(igdb_cfg.get("min_alias_coverage", 0.95))
+        too_low = {f: round(coverage[f]["share"] * 100, 1) for f in igdb_cfg.get("coverage_gated_fields") or []
+                   if coverage[f]["share"] < floor}
+        if too_low:
+            raise SystemExit(
+                f"IGDB alias coverage is below {floor:.0%} for {too_low}.\n"
+                "Add aliases in map_config.yaml first (the import report lists the "
+                "most common unmapped values)."
+            )
+
+        print("Matching IGDB games to Steam games ...")
+        kept_mask = ~steam_frame["appid"].isin([a for a, k in fold.kept_for.items() if a != k])
+        steam_kept = steam_frame[kept_mask].copy()
+        steam_kept["game_id"] = steam_kept["appid"]          # matched by app id; ids are given out below
+        igdb_frame = igdb_match_frame(igdb_df, cfg)
+        overrides_path = REPO_ROOT / igdb_cfg["matching"]["overrides_path"]
+        overrides = load_overrides(overrides_path)
+        appid_to_kept = {int(a): fold.kept_for.get(int(a), int(a)) for a in steam_frame["appid"]}
+        decisions = match_igdb(steam_kept, igdb_frame, MatchSettings.from_config(igdb_cfg),
+                               overrides, appid_to_kept)
+        decisions["title"] = igdb_frame["title"].values
+        decisions["year"] = igdb_frame["year"].values
+        merge["decisions"] = decisions
+        merge["overrides"] = overrides
+        merge["igdb_frame"] = igdb_frame
+        merge["steam_frame"] = steam_frame
+        igdb_rows = {int(r["igdb_id"]): r for r in igdb_df.to_dict("records")}
+        del igdb_df
+
+    # Steam app id -> the IGDB decision row that merges into it.
+    merged_into: dict[int, dict] = {}
+    if decisions is not None:
+        for d in decisions[decisions["decision"] == "merge"].to_dict("records"):
+            merged_into[int(d["game_id"])] = d
+
+    platforms = platform_lookup(igdb_cfg) if igdb_cfg else {}
 
     # Everything below happens inside one transaction. If anything raises,
     # the whole import rolls back and the database is left exactly as it was.
@@ -547,6 +765,11 @@ def run(limit: int | None = None, reset: bool = False) -> dict:
             session.execute(delete(Game))
             session.execute(delete(Feature))
             session.flush()
+            # IGDB games are numbered after Steam on every build, so after a
+            # reset count on from the last STEAM id, not the last id overall.
+            # (A folded app maps to its kept game's id; that is fine, a folded
+            # app never gets a games row of its own.)
+            next_id = max([int(v) for v in existing_ids.values()], default=0) + 1
         elif existing_ids:
             raise SystemExit(
                 "This database already has an import in it.\n"
@@ -556,20 +779,16 @@ def run(limit: int | None = None, reset: bool = False) -> dict:
         # --- writing, in batches -------------------------------------------
         #
         # We flush games, sources and coverage to the database every BATCH_SIZE
-        # rows instead of building one giant list first. That matters a lot at
-        # full-catalogue size: 90,000 long descriptions held in memory at once
-        # is a few gigabytes, and the machine running this may not have it.
-        #
-        # Feature LINKS cannot be written yet, because a feature needs an id
-        # and we do not know the full list of features until every game has
-        # been read. So we collect those as lightweight (game_id, key) pairs,
-        # which are small, and write them after the loop.
+        # rows instead of building one giant list first. Feature LINKS wait
+        # until the end, because a feature needs an id and we do not know the
+        # full list of features until every game has been read.
         BATCH_SIZE = 2000
 
         game_rows: list[dict] = []
         source_rows: list[dict] = []
         coverage_rows: list[dict] = []
-        pending_links: list[tuple[int, tuple[str, str]]] = []
+        late_source_rows: list[dict] = []        # folded apps + IGDB rows of merged games
+        pending_links: list[tuple[int, tuple[str, str], str]] = []
         unmapped_tags: dict[str, int] = {}
         total_written = 0
 
@@ -584,35 +803,124 @@ def run(limit: int | None = None, reset: bool = False) -> dict:
                 game_rows.clear()
                 source_rows.clear()
                 coverage_rows.clear()
+                if total_written % 20000 < BATCH_SIZE:
+                    print(f"  ... {total_written:,} games written")
 
-        for tuple_row in chosen.itertuples(index=False):
-            raw = {column: getattr(tuple_row, column) for column in chosen.columns}
+        def add_links(game_id: int, features: dict):
+            for key, source in features.items():
+                pending_links.append((game_id, key, source))
 
-            appid = str(int(raw["appid"]))
-            game_id = existing_ids.get(appid)
+        # Give every Steam app its id first, exactly the way main does: in
+        # the selection order, one id per app. A folded app still uses up its
+        # id (it just never gets a games row), so every OTHER Steam game keeps
+        # the same id it has on main.
+        records = chosen.to_dict("records")
+        steam_ids: dict[int, int] = {}
+        for raw in records:
+            appid = int(raw["appid"])
+            game_id = existing_ids.get(str(appid))
             if game_id is None:
                 game_id = next_id
                 next_id += 1
+            steam_ids[appid] = game_id
+        if steam_ids:
+            next_id = max(next_id, max(steam_ids.values()) + 1)
 
-            game_rows.append(build_game_row(raw, cfg, game_id))
+        # Features of every member of a fold group, so the kept game can take
+        # the union of the group's tags.
+        group_features: dict[int, dict] = {}
+        group_coverage: dict[int, dict] = {}
+        records_by_appid = {int(r["appid"]): r for r in records}
+        for kept, members in fold.groups.items():
+            union: dict = {}
+            cov = {c: "unknown" for c in VALID_CATEGORIES}
+            for appid in members:
+                found, coverage = resolve_features(records_by_appid[appid], cfg, aliases, registry)
+                for key in found:
+                    union[key] = "steam"
+                cov = _merge_coverage(cov, coverage)
+            group_features[kept] = union
+            group_coverage[kept] = cov
 
-            source_rows.append({
+        rescue: list[dict] = []          # one entry per Steam game that had no tags
+        filled_counts: Counter = Counter()
+        non_games: list[dict] = []
+        derived_count = 0
+
+        for raw in records:
+            appid = int(raw["appid"])
+            game_id = steam_ids[appid]
+            kept_appid = fold.kept_for.get(appid, appid)
+
+            source_row = {
                 "source_name": source_name,
-                "external_id": appid,
-                "game_id": game_id,
+                "external_id": str(appid),
+                "game_id": steam_ids[kept_appid],
                 "source_url": dataset["store_url_template"].format(appid=appid),
                 "retrieved_at": retrieved_at,
-            })
+                "title_in_source": clean_text(raw.get("name")),
+                "release_date_in_source": clean_text(raw.get("release_date")),
+                "match_method": "steam_primary" if kept_appid == appid else "steam_fold",
+                "match_score": None,
+            }
 
-            features, coverage = resolve_features(raw, cfg, aliases, registry)
-            for key in features:
-                pending_links.append((game_id, key))
-            for category, status in coverage.items():
-                coverage_rows.append({
-                    "game_id": game_id,
-                    "category": category,
-                    "status": status,
-                })
+            if kept_appid != appid:
+                # A duplicate app of another Steam game: no games row, just
+                # an extra source row pointing at the kept game.
+                late_source_rows.append(source_row)
+                if not raw["tag_list"]:
+                    rescue.append({"game_id": steam_ids[kept_appid],
+                                   "title": f"{clean_display_title(raw['name'])} (app {appid})",
+                                   "reviews": numeric_or_none(raw.get(cfg["selection"]["rank_by"])),
+                                   "group": "duplicate_app"})
+                continue
+
+            row = build_game_row(raw, cfg, game_id)
+            features: dict = {}
+            if appid in group_features:
+                features.update(group_features[appid])
+                coverage = group_coverage[appid]
+            else:
+                found, coverage = resolve_features(raw, cfg, aliases, registry)
+                features.update({key: "steam" for key in found})
+
+            match = merged_into.get(appid)
+            igdb_tag_count = 0
+            if match is not None:
+                rec = igdb_rows[int(match["igdb_id"])]
+                igdb_row = build_igdb_row(rec, cfg, game_id)
+                for column in merge_into_steam(row, igdb_row):
+                    filled_counts[column] += 1
+                found, igdb_cov = resolve_igdb_features(rec, cfg, aliases, registry, platforms)
+                for key in found:
+                    features.setdefault(key, "igdb")       # Steam wins when both have it
+                coverage = _merge_coverage(coverage, igdb_cov)
+                igdb_tag_count = igdb_feature_stats(rec)
+                late_source_rows.append(_igdb_source_row(igdb_cfg, rec, game_id, match))
+
+            if not raw["tag_list"]:
+                if row["tag_source"] == "none" and not row["is_non_game"]:
+                    extra = derived_text_features(row.get("description"), cfg, aliases, registry.approved)
+                    for key in extra:
+                        features.setdefault(key, "derived_text")
+                    derived_count += bool(extra)
+                group = ("non_game" if row["is_non_game"]
+                         else "igdb_3_plus" if match is not None and igdb_tag_count >= 3
+                         else "igdb_0_to_2" if match is not None
+                         else "no_match_has_genres_and_text" if raw["genre_list"] and row.get("description")
+                         else "almost_nothing")
+                rescue.append({"game_id": game_id, "title": row["title"], "group": group,
+                               "reviews": row.get("rating_count"), "igdb_tags": igdb_tag_count})
+
+            if row["is_non_game"]:
+                non_games.append({"game_id": game_id, "title": row["title"], "source": "steam",
+                                  "pattern": non_game_match(raw.get("name"), _non_game_patterns(cfg))})
+
+            game_rows.append(row)
+            source_rows.append(source_row)
+            add_links(game_id, features)
+            coverage_rows.extend({"game_id": game_id, "category": c, "status": s}
+                                 for c, s in coverage.items())
 
             # Track tags with no alias, so the report can tell Austin and
             # Kayne which ones are worth mapping next.
@@ -622,10 +930,37 @@ def run(limit: int | None = None, reset: bool = False) -> dict:
 
             if len(game_rows) >= BATCH_SIZE:
                 flush_batch()
-                if total_written % 20000 == 0:
-                    print(f"  ... {total_written:,} games written")
 
-        flush_batch()   # whatever is left over
+        flush_batch()
+        steam_written = total_written
+
+        # --- new IGDB games, in IGDB id order (REL 2) ------------------------
+        new_igdb = 0
+        if decisions is not None:
+            print("Adding the IGDB games we did not have ...")
+            for d in decisions[decisions["decision"] != "merge"].sort_values("igdb_id").to_dict("records"):
+                rec = igdb_rows[int(d["igdb_id"])]
+                game_id = next_id
+                next_id += 1
+                row = build_igdb_row(rec, cfg, game_id)
+                found, coverage = resolve_igdb_features(rec, cfg, aliases, registry, platforms)
+                game_rows.append(row)
+                source_rows.append(_igdb_source_row(igdb_cfg, rec, game_id, d))
+                add_links(game_id, {key: "igdb" for key in found})
+                coverage_rows.extend({"game_id": game_id, "category": c, "status": s}
+                                     for c, s in coverage.items())
+                if row["is_non_game"]:
+                    non_games.append({"game_id": game_id, "title": row["title"], "source": "igdb",
+                                      "pattern": non_game_match(row["title"], _non_game_patterns(cfg))})
+                new_igdb += 1
+                if len(game_rows) >= BATCH_SIZE:
+                    flush_batch()
+            flush_batch()
+
+        # Folded Steam apps and the IGDB rows of merged games point at games
+        # that now exist, so they can be written.
+        for start in range(0, len(late_source_rows), 10000):
+            session.execute(GameSource.__table__.insert(), late_source_rows[start:start + 10000])
 
         # Now that every game has been read, we know the full set of features.
         # Give each one an id, sorted so the ids come out the same on every
@@ -643,16 +978,17 @@ def run(limit: int | None = None, reset: bool = False) -> dict:
 
         session.execute(Feature.__table__.insert(), feature_rows)
 
-        # Write the links in chunks too. At full-catalogue size this is about
-        # two million rows, and handing SQLite one parameter list that long is
-        # asking for trouble.
+        # Write the links in chunks too. At this size it is several million
+        # rows, and handing SQLite one parameter list that long is asking for
+        # trouble. Sorted so the table is built the same way every time.
+        pending_links.sort(key=lambda link: (link[0], feature_ids[link[1]]))
         link_count = len(pending_links)
-        for start in range(0, link_count, 10000):
+        for start in range(0, link_count, 20000):
             session.execute(
                 GameFeature.__table__.insert(),
                 [
-                    {"game_id": gid, "feature_id": feature_ids[key]}
-                    for gid, key in pending_links[start:start + 10000]
+                    {"game_id": gid, "feature_id": feature_ids[key], "source": src}
+                    for gid, key, src in pending_links[start:start + 20000]
                 ],
             )
 
@@ -661,7 +997,38 @@ def run(limit: int | None = None, reset: bool = False) -> dict:
     stats["unmapped_tags"] = unmapped_tags
     stats["column_sources"] = cfg["fields"]["column_sources"]
     stats["config_snapshot_json"] = json.dumps(cfg, ensure_ascii=False, default=str)
+    stats["steam_games_written"] = steam_written
+    stats["igdb_new_games"] = new_igdb
+    merge.update({
+        "rescue": rescue, "filled_counts": dict(filled_counts), "non_games": non_games,
+        "derived_text_games": derived_count, "steam_ids": steam_ids,
+    })
+    stats["merge"] = merge
     return stats
+
+
+def _repo_relative(path: Path) -> str:
+    try:
+        return path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return str(path)        # CSV kept outside the repo
+
+
+def _igdb_source_row(igdb_cfg: dict, rec: dict, game_id: int, decision: dict) -> dict:
+    """The game_sources row that records where an IGDB game went and why."""
+    score = decision.get("score")
+    return {
+        "source_name": igdb_cfg["source_name"],
+        "external_id": str(int(rec["igdb_id"])),
+        "game_id": game_id,
+        "source_url": None,
+        "retrieved_at": igdb_cfg.get("retrieved_at"),
+        "title_in_source": clean_text(rec.get("name")),
+        "release_date_in_source": clean_text(rec.get("release_date")),
+        "match_method": decision["method"] if decision["decision"] == "merge" else (
+            "igdb_new" if decision["method"] == "igdb_new" else f"igdb_new:{decision['method']}"),
+        "match_score": None if score is None or pd.isna(score) else float(score),
+    }
 
 
 def main(argv=None) -> None:
@@ -672,15 +1039,21 @@ def main(argv=None) -> None:
                         help="import this many games instead of the config's target_count")
     parser.add_argument("--reset", action="store_true",
                         help="wipe the existing import and rebuild from scratch")
+    parser.add_argument("--steam-only", action="store_true",
+                        help="import Steam only, without merging IGDB (like main)")
     args = parser.parse_args(argv)
 
-    stats = run(limit=args.limit, reset=args.reset)
+    stats = run(limit=args.limit, reset=args.reset, use_igdb=not args.steam_only)
 
     # Imported here rather than at the top so the report module is only
     # loaded when we actually need it.
     from pipeline.report import print_report
 
     print_report(stats)
+    if stats.get("merge", {}).get("decisions") is not None:
+        from pipeline.merge_report import write_merge_report
+
+        write_merge_report(stats)
 
 
 if __name__ == "__main__":
