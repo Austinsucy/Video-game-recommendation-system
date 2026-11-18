@@ -45,6 +45,7 @@ from pipeline.config import (
 from pipeline.export_map import export_map_db
 from pipeline.vectorize import (
     EMBEDDING_METHODS,
+    TEXT_METHODS,
     SIMILARITY_DECIMALS,
     TagCorpus,
     load_corpus_for,
@@ -323,7 +324,11 @@ def main(argv: list[str] | None = None) -> None:
             f"WARNING: map version {version!r} already exists; "
             "--publish would refuse it. Use a new --version-id or map_version."
         )
-    corpus = load_corpus_for(DB_PATH, cfg)
+    # A vote method gives every game without votes a zero row, and build_map
+    # leaves zero rows out anyway, so only load the games with votes. On the
+    # merged 252k-game database that is the difference between fitting in
+    # memory and crashing.
+    corpus = load_corpus_for(DB_PATH, cfg, only_with_votes=method not in TEXT_METHODS)
     build = build_map(corpus, cfg)
     publish.validate(
         build.clusters,

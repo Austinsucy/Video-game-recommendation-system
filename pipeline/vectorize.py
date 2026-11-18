@@ -127,18 +127,31 @@ def load_corpus(
     db_path: Path | str,
     aliases: dict[str, tuple[str, str]],
     text_field: str = "description",
+    only_with_votes: bool = False,
+    feature_categories: set[str] | None = None,
 ) -> TagCorpus:
     """`text_field="long_description"` reads the full text, falling back to the
-    short description when it is blank or NULL."""
+    short description when it is blank or NULL.
+
+    Added for the Steam + IGDB database (252,030 games): the matrices below are
+    dense, so loading every game and every feature needs over 10 GB.
+      only_with_votes     load only games with Steam tag votes (raw_tags_json).
+                          The vote methods give every other game a zero row
+                          anyway, so nothing they use is lost.
+      feature_categories  load only these feature categories. Leaving out the
+                          categories whose weight is 0 (the 5,000+ display-only
+                          tags) does not change category_weighted at all.
+    """
     if text_field not in TEXT_FIELDS:
         raise ValueError(f"text_field must be one of {TEXT_FIELDS}, got {text_field!r}")
     long_column = "long_description" if text_field == "long_description" else "NULL"
     uri = Path(db_path).resolve().as_uri() + "?mode=ro"  # never creates a file
     conn = sqlite3.connect(uri, uri=True)
     try:
+        where = "WHERE raw_tags_json IS NOT NULL" if only_with_votes else ""
         rows = conn.execute(
             f"SELECT game_id, title, description, raw_tags_json, {long_column} "
-            "FROM games ORDER BY game_id"
+            f"FROM games {where} ORDER BY game_id"
         ).fetchall()
         feature_rows = conn.execute(
             "SELECT feature_id, category, name FROM features ORDER BY category, name"
@@ -146,6 +159,12 @@ def load_corpus(
         link_rows = conn.execute("SELECT game_id, feature_id FROM game_features").fetchall()
     finally:
         conn.close()
+    if feature_categories is not None:
+        feature_rows = [r for r in feature_rows if r[1] in feature_categories]
+    if only_with_votes or feature_categories is not None:
+        wanted_games = {r[0] for r in rows}
+        wanted_features = {r[0] for r in feature_rows}
+        link_rows = [(g, f) for g, f in link_rows if g in wanted_games and f in wanted_features]
     raw = [json.loads(r[3]) if r[3] else {} for r in rows]
     tags = sorted({t for tag_votes in raw for t in tag_votes})
     column = {t: j for j, t in enumerate(tags)}
@@ -184,9 +203,22 @@ def load_corpus(
 
 # --- tag-vote methods -------------------------------------------------------
 
-def load_corpus_for(db_path: Path | str, cfg: dict) -> TagCorpus:
-    """load_corpus with the config's alias table and `vectorization.text_field`."""
-    return load_corpus(db_path, alias_lookup(cfg), cfg["vectorization"]["text_field"])
+def load_corpus_for(db_path: Path | str, cfg: dict, only_with_votes: bool = False) -> TagCorpus:
+    """load_corpus with the config's alias table and `vectorization.text_field`.
+
+    Feature categories weighted 0 (the 5,000+ display-only tags) are skipped,
+    which changes no result but keeps the merged 252k-game database in memory.
+    Every game is still loaded, because the lab tools compare tag methods and
+    text methods on the same corpus. build_map passes only_with_votes itself.
+    """
+    weighted = {c for c, w in cfg["category_weights"].items() if w}
+    return load_corpus(
+        db_path,
+        alias_lookup(cfg),
+        cfg["vectorization"]["text_field"],
+        only_with_votes=only_with_votes,
+        feature_categories=weighted,
+    )
 
 
 def binary(corpus: TagCorpus, params: Params) -> np.ndarray:
