@@ -1,5 +1,5 @@
 import Button from '@mui/material/Button';
-import FeaturePanel, { PlannedControls } from './FeaturePanel';
+import FeaturePanel from './FeaturePanel';
 
 // Only controls that work today. Add a row when a feature ships.
 const MAP_CONTROLS: [string, string][] = [
@@ -11,12 +11,17 @@ const MAP_CONTROLS: [string, string][] = [
   ['Close a panel', 'Its close button, or Esc'],
 ];
 
-export default function HelpPanel({ onClose }: { onClose: () => void }) {
+interface HelpPanelProps {
+  onClose: () => void;
+  onStartTour: () => void;
+}
+
+export default function HelpPanel({ onClose, onStartTour }: HelpPanelProps) {
   return (
     <FeaturePanel
       title="Help"
       requirement="GW 1"
-      status="partial"
+      status="available"
       summary="Each dot is a game. Games with similar genres, mechanics and themes sit close together, and colours mark groups of similar games."
       onClose={onClose}
     >
@@ -28,11 +33,9 @@ export default function HelpPanel({ onClose }: { onClose: () => void }) {
           </div>
         ))}
       </dl>
-      <PlannedControls note="A step-by-step guided tour is not available yet.">
-        <div className="panel-actions">
-          <Button variant="outlined" size="small" disabled>Start guided tour</Button>
-        </div>
-      </PlannedControls>
+      <div className="panel-actions help-tour-action">
+        <Button variant="outlined" size="small" onClick={onStartTour}>Start guided tour</Button>
+      </div>
     </FeaturePanel>
   );
 }

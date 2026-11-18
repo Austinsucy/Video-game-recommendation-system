@@ -37,7 +37,9 @@ export const LibraryIcon = lineIcon(
 export const HelpIcon = lineIcon(
   <><circle cx="12" cy="12" r="8.5" /><path d="M9.6 9.5a2.5 2.5 0 1 1 3.4 2.3c-.7.3-1 .8-1 1.5v.5" /><path d="M12 16.8v.2" /></>,
 );
-export const CloseIcon = lineIcon(<path d="M6 6l12 12M18 6L6 18" />);
+export const ArrowLeftIcon = lineIcon(<path d="M19 12H5M11 6l-6 6 6 6" />);
+export const ArrowRightIcon = lineIcon(<path d="M5 12h14M13 6l6 6-6 6" />);
+export const CloseIcon =lineIcon(<path d="M6 6l12 12M18 6L6 18" />);
 export const PlusIcon = lineIcon(<path d="M12 5v14M5 12h14" />);
 export const MinusIcon = lineIcon(<path d="M5 12h14" />);
 export const FitIcon = lineIcon(

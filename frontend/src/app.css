@@ -375,3 +375,54 @@
 @media (prefers-reduced-motion: reduce) {
   .scan-countdown { display: none; }
 }
+
+/* ---------- Guided tour (GW 1) ---------- */
+
+.help-tour-action { margin-top: 14px; }
+
+.tour-layer { position: fixed; inset: 0; z-index: 1500; } /* above MUI tooltips (1500 is MUI's modal level) */
+.tour-backdrop { position: absolute; inset: 0; }
+.tour-backdrop.is-dimmed { background: rgb(17 24 39 / 55%); }
+:root[data-theme="dark"] .tour-backdrop.is-dimmed { background: rgb(0 0 0 / 65%); }
+
+/* The huge shadow dims everything around the highlighted element. */
+.tour-spotlight {
+  position: fixed;
+  border-radius: 8px;
+  outline: 2px solid var(--accent);
+  box-shadow: 0 0 0 9999px rgb(17 24 39 / 55%);
+  pointer-events: none;
+  transition: top 220ms ease, left 220ms ease, width 220ms ease, height 220ms ease;
+}
+:root[data-theme="dark"] .tour-spotlight { box-shadow: 0 0 0 9999px rgb(0 0 0 / 65%); }
+
+.tour-card {
+  position: fixed;
+  width: min(340px, calc(100vw - 24px));
+  padding: 16px 16px 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 32px rgb(17 24 39 / 22%);
+  transition: top 220ms ease, left 220ms ease;
+}
+.tour-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; min-height: 20px; }
+.tour-count { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--text-muted); }
+.tour-title { font-size: 16px; font-weight: 650; line-height: 1.3; }
+.tour-body { margin-top: 6px !important; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+
+.tour-dots { display: flex; gap: 5px; margin: 14px 0 10px; }
+.tour-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--border-strong); transition: background 150ms ease, width 150ms ease; }
+.tour-dots span.is-done { background: var(--partial-border); }
+.tour-dots span.is-current { width: 16px; border-radius: 3px; background: var(--accent); }
+
+.tour-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tour-skip.MuiButton-root { color: var(--text-muted); }
+.tour-nav { display: flex; align-items: center; gap: 6px; }
+.tour-nav .MuiIconButton-root { border: 1px solid var(--border-strong); color: var(--text); }
+.tour-nav .MuiIconButton-root.Mui-disabled { border-color: var(--border); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spotlight, .tour-card, .tour-dots span { transition: none; }
+}
