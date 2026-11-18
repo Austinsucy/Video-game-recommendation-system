@@ -2,8 +2,9 @@ import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { CloseIcon } from '../components/icons';
+import { STATUS_LABEL, type FeatureStatus } from './featureStatus';
 
-export type FeatureStatus = 'planned' | 'partial' | 'available';
+export type { FeatureStatus };
 
 interface FeaturePanelProps {
   title: string;
@@ -14,12 +15,6 @@ interface FeaturePanelProps {
   onClose: () => void;
   children?: ReactNode;
 }
-
-const STATUS_LABEL: Record<FeatureStatus, string> = {
-  planned: 'Not available yet',
-  partial: 'Partly available',
-  available: 'Available',
-};
 
 /** Shared frame for the toolbar feature panels. */
 export default function FeaturePanel({ title, requirement, status, summary, onClose, children }: FeaturePanelProps) {

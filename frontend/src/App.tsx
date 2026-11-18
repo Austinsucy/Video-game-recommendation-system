@@ -8,6 +8,9 @@ import TopToolbar from './components/toolbar/TopToolbar';
 import FeaturePanelHost from './features/FeaturePanelHost';
 import { featureButtonId, type FeatureId } from './features/features';
 import { matchesGenre } from './features/genreFilter';
+import GuidedTour from './features/tour/GuidedTour';
+import { TOUR_STEPS } from './features/tour/tourSteps';
+import { hasSeenTour, markTourSeen } from './features/tour/tourStorage';
 import { useScan } from './features/useScan';
 import { getGameDetails, getMap } from './services/gameService';
 import type { GameDetails, GameSummary, MapData, MapGame } from './services/gameService';
@@ -32,15 +35,22 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
   const [detailsError, setDetailsError] = useState<{ id: number; message: string } | null>(null);
   const [activeFeature, setActiveFeature] = useState<FeatureId | null>(null);
   const [selectedGenre, setSelectedGenre] = useState('');
+  const [tourOpen, setTourOpen] = useState(false);
   const mapRef = useRef<GameMapHandle>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const infoPanelOpen = selectedGame !== null;
 
   // GM 2: load the map once; a failed load shows no nodes and a retry button (REL 3).
+  // GW 1: on a first visit the guided tour starts once the map has loaded, so
+  // every step has something to point at.
   useEffect(() => {
     let ignore = false;
     getMap()
-      .then((data) => { if (!ignore) setMap(data); })
+      .then((data) => {
+        if (ignore) return;
+        setMap(data);
+        if (!hasSeenTour()) setTourOpen(true);
+      })
       .catch(() => {
         if (!ignore) setMapError('The game map could not be loaded. Check your connection, then try again.');
       });
@@ -122,6 +132,20 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
     if (activeFeature === 'scan') scan.stop();
     if (activeFeature) document.getElementById(featureButtonId(activeFeature))?.focus();
     setActiveFeature(null);
+  }
+
+  function startTour() {
+    scan.stop();
+    // Close the open panel so it does not cover the map, and park focus on the
+    // Help button; the tour returns focus there when it ends.
+    if (activeFeature) document.getElementById(featureButtonId(activeFeature))?.focus();
+    setActiveFeature(null);
+    setTourOpen(true);
+  }
+
+  function closeTour() {
+    markTourSeen();
+    setTourOpen(false);
   }
 
   function retryMap() {
@@ -214,6 +238,7 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
             onGenreChange={setSelectedGenre}
             scan={scan}
             onClose={closeFeature}
+            onStartTour={startTour}
           />
         )}
 
@@ -228,6 +253,8 @@ export default function App({ themeMode, onToggleThemeMode }: AppProps) {
           />
         )}
       </main>
+
+      {tourOpen && <GuidedTour steps={TOUR_STEPS} onClose={closeTour} />}
     </div>
   );
 }

@@ -18,6 +18,7 @@ interface FeaturePanelHostProps {
   onClose: () => void;
   selectedGenre: string;
   onGenreChange: (genre: string) => void;
+  onStartTour: () => void;
 }
 
 /** Renders the panel for the toolbar feature that is open. */
@@ -29,6 +30,7 @@ export default function FeaturePanelHost({
   onClose,
   selectedGenre,
   onGenreChange,
+  onStartTour,
 }: FeaturePanelHostProps) {
   switch (feature) {
     case 'recommendations':
@@ -57,6 +59,6 @@ export default function FeaturePanelHost({
       return <SteamLibraryPanel onClose={onClose} />;
 
     case 'help':
-      return <HelpPanel onClose={onClose} />;
+      return <HelpPanel onClose={onClose} onStartTour={onStartTour} />;
   }
 }
