@@ -42,7 +42,7 @@ interface GameMapProps {
   onClickBackground: () => void;
   /** Games outside this genre are faded and lose their labels; '' shows all (GV 1). */
   selectedGenre: string;
-  /** Redraws the labels and highlights in the new theme's colours. */
+  /** Redraws the labels and highlights in the new theme's colors. */
   themeMode: ThemeMode;
   ref?: Ref<GameMapHandle>;
 }
@@ -75,7 +75,7 @@ const STATUS_LINE_HEIGHT = 36; // keep labels clear of the .map-status line
 
 const FONT_FAMILY = '"Inter", "Segoe UI", system-ui, sans-serif';
 
-// Canvas colours come from the --map-* CSS variables in app.css, so they
+// Canvas colors come from the --map-* CSS variables in app.css, so they
 // follow light and dark mode.
 interface MapPalette {
   text: string;
@@ -466,7 +466,7 @@ export default function GameMap({ games, selectedId, similarGames, obscuredRight
         const r = radius * data.scales[d];
         ctx.beginPath();
         if (d === selected) {
-          // Size and outline change too, so selection does not rely on colour (ACC 3).
+          // Size and outline change too, so selection does not rely on color (ACC 3).
           const sr = Math.max(r + 1.5, 7.5);
           ctx.fillStyle = colors.selectedUnderlay;
           ctx.arc(x, y, sr + 7, 0, Math.PI * 2);

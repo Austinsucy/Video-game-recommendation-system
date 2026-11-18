@@ -1,5 +1,5 @@
 // Draws every game as a translucent dot on the GPU. Positions, sizes and
-// colours are uploaded once; a pan or zoom only changes a few uniforms, so
+// colors are uploaded once; a pan or zoom only changes a few uniforms, so
 // tens of thousands of dots stay smooth (PERF 3).
 
 export interface DotData {

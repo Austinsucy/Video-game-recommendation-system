@@ -20,7 +20,7 @@ export default function LegendPanel({ games, onClose }: { games: MapGame[]; onCl
       title="Legend"
       requirement="CL 1"
       status="partial"
-      summary="Each colour is a group of games with similar features. Cluster names summarize common features and are not official genres."
+      summary="Each color is a group of games with similar features. Cluster names summarize common features and are not official genres."
       onClose={onClose}
     >
       <ul className="legend-list">

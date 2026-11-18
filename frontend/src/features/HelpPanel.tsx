@@ -22,7 +22,7 @@ export default function HelpPanel({ onClose, onStartTour }: HelpPanelProps) {
       title="Help"
       requirement="GW 1"
       status="available"
-      summary="Each dot is a game. Games with similar genres, mechanics and themes sit close together, and colours mark groups of similar games."
+      summary="Each dot is a game. Games with similar genres, mechanics and themes sit close together, and colors mark groups of similar games."
       onClose={onClose}
     >
       <dl className="help-list">
