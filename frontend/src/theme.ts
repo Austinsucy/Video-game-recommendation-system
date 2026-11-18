@@ -18,7 +18,7 @@ const PALETTES = {
   },
 };
 
-// One place for the app's colours and type. Text colours meet WCAG AA on
+// One place for the app's colors and type. Text colors meet WCAG AA on
 // the surfaces of both modes (ACC 1).
 export function makeTheme(mode: ThemeMode) {
   const { accent, text, background, divider } = PALETTES[mode];

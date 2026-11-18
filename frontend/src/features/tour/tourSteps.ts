@@ -25,12 +25,12 @@ const button = (id: FeatureId) => `#${featureButtonId(id)}`;
 // needs no changes. When a feature ships, update its `status`.
 export const TOUR_STEPS: TourStep[] = [
   {
-    title: 'Welcome to Game Map',
-    body: 'This short tour shows you around the map and the toolbar. Use the arrow buttons or the ← and → keys to move through it, and skip it any time.',
+    title: 'Welcome to Our Game Map!',
+    body: 'This short tour shows you around the map and the toolbar. Use the arrow buttons or the ← and → keys to move through it, and skip it using the bottom button at any time.',
   },
   {
-    title: 'The map',
-    body: 'Each dot is a game. Games with similar genres, mechanics and themes sit close together, and colours mark groups of similar games. Drag to pan, scroll to zoom and click a dot to see the game’s details.',
+    title: 'The Map',
+    body: 'Each dot is a game. Games with similar genres, mechanics and themes sit close together, and colors mark groups of similar games. Drag to pan, scroll to zoom and click a dot to see the game’s details.',
     target: '.game-map-canvas',
     placement: 'center',
   },
@@ -49,21 +49,21 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     title: 'Genres',
-    body: 'Choose one genre to fade every other game. Games keep their positions, so you can see where a genre sits on the map.',
+    body: 'Choose one genre to fade out the other games on the map. The games keep their positions, so you can see where your chosen genre sits on the map.',
     target: button('genres'),
     placement: 'bottom',
     status: 'available',
   },
   {
     title: 'Legend',
-    body: 'See what each colour means. Every colour is a group of games with similar features.',
+    body: 'See what each color cluster means. Every color is a cluster of games with similar features.',
     target: button('legend'),
     placement: 'bottom',
     status: 'partial',
   },
   {
     title: 'Scan',
-    body: 'Not sure what to play? Scan jumps from one random game to the next, opening each one, until you press Stop. It respects your genre filter.',
+    body: 'Not sure what to play? Scan jumps from one random game to the next, opening each one, until you press Stop. Scan also accounts for your genre filter.',
     target: button('scan'),
     placement: 'bottom',
     status: 'partial',
@@ -77,7 +77,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     title: 'Steam Library',
-    body: 'Enter a public Steam ID to see the games you own on the map and get recommendations from them. You will never be asked for a password.',
+    body: 'Enter a public Steam ID to see the games you own on the map and get recommendations from them. *We will never ask you for your password*',
     target: button('steam'),
     placement: 'bottom',
     status: 'planned',
@@ -95,7 +95,7 @@ export const TOUR_STEPS: TourStep[] = [
     placement: 'bottom',
   },
   {
-    title: 'You’re all set',
+    title: 'You’re all set!',
     body: 'Help lists every map control, and you can restart this tour from there any time.',
     target: button('help'),
     placement: 'bottom',
