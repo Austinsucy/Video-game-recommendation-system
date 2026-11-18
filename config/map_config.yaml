@@ -747,6 +747,63 @@ aliases:
 
 
 # =============================================================================
+# TRANSLATION - map v4 (test/map-v4-translate, read by pipeline/build_map_v4.py)
+#
+# Map v3 stays exactly as published. Games with no Steam tag votes are
+# translated into v3's vector space and placed next to the v3 games they
+# translate closest to. Measured results and the reasons for each number:
+# docs/map-v4.md. Proposed by Ronnie, Kayne approves before anything is
+# published.
+# =============================================================================
+translation:
+  map_version: "v4"
+  # The published v3 map whose positions, clusters and colours are kept.
+  base_map_db: "data/map.db"
+  base_map_version: "v3"
+
+  # --- the translator (pipeline/translate.py, class Translator) ---
+  ridge_lambda: 10.0
+  # Feature columns at least this many training games share; rarer ones are noise.
+  min_feature_games: 5
+
+  # --- recommendations ---
+  # CSLS hub correction: how many closest translated games make up a v3 game's hub score.
+  csls_k: 10
+
+  # --- placement (v3 points never move) ---
+  placement:
+    group_radius: 25.0       # recommendations closer than this count as one group
+    similarity_power: 4      # how much more a close match counts than a weaker one
+    spacing_neighbor: 3      # local spacing = distance to the 3rd nearest v3 game
+    spacing_min: 0.5
+    spacing_max: 8.0
+    spread_steps: 40
+    spread_neighbors: 8
+    push: 0.5
+    pull: 0.05               # share of the way back to the target per step
+    colour_neighbors: 15     # cluster = most common v3 cluster among this many nearby v3 points
+
+  # --- who goes on the map ---
+  map_gate:
+    min_features: 3
+    require_description: true
+    # Stricter option: 0.8 keeps about 94,700 new games instead of 147,000,
+    # but leaves out some famous ones (Zelda BotW scores 0.71).
+    min_confidence: null
+
+  # map v4 has about 220,000 games, far over CON 3's 1,100. PERF 1-3 must be
+  # retested before v4 is published for real.
+  max_map_games: 230000
+
+  # --- held-out check (pipeline/eval_translation.py) ---
+  evaluation:
+    test_size: 4000
+    seed: 0
+    min_quality: 0.60            # share of the way from random (0) to v3's own lists (1)
+    min_gain_over_text: 2.0      # must be at least this many times better than description-only
+
+
+# =============================================================================
 # 7. SOURCES - where games come from, and how the two datasets merge
 #
 # Steam is the main source. Its settings are the dataset / selection / fields
