@@ -33,7 +33,9 @@ CREATE TABLE games (
     x REAL NOT NULL,
     y REAL NOT NULL,
     cluster_id INTEGER NOT NULL REFERENCES clusters,
-    popularity REAL
+    popularity REAL,
+    placement TEXT NOT NULL DEFAULT 'v3',  -- 'v3' or 'translated' (map v4: placed from IGDB-style data)
+    confidence REAL                         -- translated games only: how close the match was (0 to 1)
 );
 CREATE TABLE game_genres (
     game_id INTEGER NOT NULL REFERENCES games,
@@ -49,8 +51,8 @@ COPIES = {
         WHERE map_version_id = :version ORDER BY cluster_id
     """,
     "games": """
-        INSERT INTO games (game_id, title, x, y, cluster_id, popularity)
-        SELECT g.game_id, g.title, m.x, m.y, m.cluster_id, g.popularity
+        INSERT INTO games (game_id, title, x, y, cluster_id, popularity, placement, confidence)
+        SELECT g.game_id, g.title, m.x, m.y, m.cluster_id, g.popularity, m.placement, m.confidence
         FROM src.map_games m JOIN src.games g USING (game_id)
         WHERE m.map_version_id = :version ORDER BY g.game_id
     """,

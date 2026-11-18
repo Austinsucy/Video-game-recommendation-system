@@ -476,7 +476,17 @@ class MapGame(Base):
     y: Mapped[float] = mapped_column(nullable=False)
     cluster_id: Mapped[int] = mapped_column(nullable=False)
 
+    # Added for map v4 (test/map-v4-translate). How this game got its spot:
+    #   'v3'          a Steam game with tag votes, at its map v3 position
+    #   'translated'  a game with no votes (IGDB-only, or Steam with no tags),
+    #                 placed next to the v3 games it translates closest to
+    # confidence is only set for translated games: the cosine between its
+    # translated vector and its closest v3 game (1.0 = a near-perfect match).
+    placement: Mapped[str] = mapped_column(nullable=False, default="v3", server_default=text("'v3'"))
+    confidence: Mapped[float | None]
+
     __table_args__ = (
+        CheckConstraint("placement IN ('v3', 'translated')", name="ck_map_games_placement"),
         # A two-column foreign key. A single-column one pointing at
         # clusters.cluster_id would let a v2 game point at a v1 cluster, which
         # is nonsense. Checking both columns together is what actually enforces

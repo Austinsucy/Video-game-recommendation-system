@@ -154,13 +154,19 @@ def build_igdb_row(rec: dict, cfg: dict, game_id: int) -> dict:
     has_tags = any(rec.get(f) for f in TAG_LIKE_FIELDS)
     row["tag_source"] = "igdb" if has_tags else "none"
     row["raw_tags_kind"] = "presence" if has_tags else None
-    row["raw_igdb_json"] = raw_igdb_json(rec, ig)
+    # The IGDB blurb goes in too. A merged Steam game keeps Steam's
+    # description in games.description, so without this the IGDB text would
+    # be lost, and map v4 learns from exactly that text (pipeline/translate.py).
+    row["raw_igdb_json"] = raw_igdb_json(rec, ig, {"description": row.get("description")})
     return row
 
 
-def raw_igdb_json(rec: dict, ig: dict) -> str | None:
-    """The IGDB lists exactly as the file had them (after the list clean-up)."""
-    out = {}
+def raw_igdb_json(rec: dict, ig: dict, extra: dict | None = None) -> str | None:
+    """The IGDB lists exactly as the file had them (after the list clean-up).
+
+    `extra` adds values we worked out ourselves, like the short description.
+    """
+    out = {key: value for key, value in (extra or {}).items() if value is not None}
     for column in ig.get("raw_columns") or []:
         value = rec.get(column)
         if isinstance(value, list):

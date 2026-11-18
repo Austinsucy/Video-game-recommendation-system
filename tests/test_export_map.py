@@ -83,7 +83,7 @@ def test_exports_the_active_map(source, tmp_path):
     ]
     games = rows(out, "SELECT * FROM games ORDER BY game_id")
     assert len(games) == len(IDS)
-    assert games[2] == (3, "Game 3", 4.0, 2.0, 0, 0.3)
+    assert games[2] == (3, "Game 3", 4.0, 2.0, 0, 0.3, "v3", None)   # placement and confidence added for map v4
     assert rows(out, "SELECT * FROM game_genres ORDER BY game_id, genre") == [
         (1, "Action"),
         (1, "RPG"),
